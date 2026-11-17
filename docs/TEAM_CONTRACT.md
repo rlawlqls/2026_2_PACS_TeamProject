@@ -24,7 +24,7 @@
 | 저장 시간 | 모든 Firestore Timestamp는 **UTC 기준 서버 시간** (`SERVER_TIMESTAMP`); 화면 표시만 KST 변환 | 확정 |
 | 검토 상태 | `registered` → `assigned` → `reviewing` → `completed`; 예외 `needs_review` | 확정 |
 | 점검 결과 | `pass` / `needs_check`; 저장 계층 오류 시 `error`; **의학적 적합 판정 아님** | 확정 |
-| 코드 리뷰 | 작업당 Issue → `아이디/기능명` 브랜치 → 커밋 → PR → **다른 팀원 1명 이상 리뷰** → 병합 (상세: `docs/GIT_RULES.md`) | `[과제 필수]` |
+| 코드 리뷰 | 작업당 Issue → `아이디/기능명` 브랜치 → 커밋 → PR → **코드 PR은 다른 팀원 1명 리뷰** → 병합 (상세: `docs/GIT_RULES.md`) | `[과제 필수]` |
 | Python 환경 | Python 3.11.x, venv 사용 | 확정 |
 | 의존성 버전 | `requirements.txt` 버전 고정 (아래 §12 참고) | 확정 |
 
@@ -119,7 +119,7 @@ pacs-quality-check/
     └── invalid.txt
 ```
 
-**규칙:** 다른 사람 소유 파일을 변경해야 하면 PR 설명에 이유와 영향을 기록하고 해당 담당자의 승인을 받은 뒤 머지한다. 공통 스키마(`models.py`)와 계약 문서는 어느 한 사람의 독단으로 바꾸지 않는다.
+**규칙:** 다른 사람 소유 파일을 변경해야 하면 PR 설명에 이유와 영향을 기록하고 해당 담당자에게 알린다. 공통 스키마(`models.py`)와 계약 문서는 어느 한 사람의 독단으로 바꾸지 않는다.
 
 ---
 
@@ -759,7 +759,7 @@ run_id = save_processing_run(image_id, "clahe", {"clip_limit": 2.0,
 
 ### 리뷰
 
-리뷰어는 정해 두지 않는다. PR을 올리면 나를 뺀 팀원 전원을 리뷰어로 지정하고, 먼저 본 사람이 리뷰한다. 다른 사람 담당 파일을 고쳤다면 그 담당자의 승인을 받는다 (`docs/GIT_RULES.md` §5).
+코드 PR은 나를 뺀 팀원 전원을 리뷰어로 지정하고, 아무나 1명이 Approve + 코멘트 1줄이면 머지한다. 오타·작은 문서 수정 PR은 리뷰 없이 본인이 머지한다 (`docs/GIT_RULES.md` §5).
 
 ### 최종 담당-제공물 표
 
