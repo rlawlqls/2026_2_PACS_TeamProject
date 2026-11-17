@@ -2,18 +2,18 @@
 
 > 우리 팀 Git 사용의 **최상위 규칙**이다. `TEAM_CONTRACT.md` §9(Git 규칙)와 다르면 **이 문서를 따른다**.
 > AI 도구는 저장소 루트의 `AGENTS.md`를 통해 이 규칙을 자동으로 읽는다.
-> 규칙을 바꾸려면 이 문서를 수정하는 PR을 올리고 **팀원 전원이 승인**한 뒤 병합한다.
+> 규칙을 바꾸면 PR을 머지한 뒤 팀 채팅에 알린다.
 
 ---
 
 ## 0. 이것만 기억하기
 
 ```text
-① 이슈 만들기 (#12)
+① 이슈 만들기 (#12)                오타·작은 문서 수정은 생략 가능 (§3)
 ② main 최신화 → 내 브랜치 만들기   rlawlqls/clahe
 ③ 코딩 → 테스트 → 커밋            feat: CLAHE 함수 구현 (#12)
 ④ push → PR 올리기 (→ main)       본문에 Closes #12
-⑤ 다른 팀원 1명 이상 승인
+⑤ 코드 PR이면 팀원 1명 승인           오타·작은 문서 수정은 생략 (§5)
 ⑥ PR 작성자가 직접 Merge → 이슈 자동 닫힘
 ⑦ main으로 돌아와서 pull
 ```
@@ -61,6 +61,19 @@ AI에게 맡겨도 되고 직접 해도 된다 (§10). 나머지 내용은 필�
 
 코딩 전에 GitHub **Issues → New issue**에서 템플릿(기능·작업 / 버그)을 골라 만든다.
 
+### 언제 이슈가 필요한가
+
+| 이슈 필수 | 이슈 없이 PR만 |
+|---|---|
+| 기능 구현 (함수·화면·테스트 작성 포함) | 오타 수정 |
+| 버그 수정 | 주석·문서의 작은 수정 |
+| 계약(`TEAM_CONTRACT.md`) 변경 | |
+
+- 이슈가 없어도 **PR은 반드시** 올린다 (main 직접 push 금지). 커밋·PR 제목의 `(#번호)`와 PR 본문의 `Closes #`는 생략한다.
+- 헷갈리면 이슈를 만든다.
+
+### 이슈 작성 규칙
+
 | 항목 | 규칙 |
 |---|---|
 | 제목 | `[타입] 무엇을 하는지` — 예: `[feat] apply_clahe 함수 구현`, `[fix] ROI 좌표가 확대 시 어긋남` |
@@ -102,21 +115,19 @@ AI에게 맡겨도 되고 직접 해도 된다 (§10). 나머지 내용은 필�
 | 방향 | `내 브랜치 → main` |
 | 제목 | 커밋 형식과 같게: `feat: CLAHE 함수 구현 (#12)` |
 | 본문 | PR 템플릿을 채운다. 특히 `Closes #12`, 테스트 결과, AI 활용 |
-| 리뷰어 | **나를 뺀 팀원 3명 모두 지정.** 먼저 본 사람이 리뷰한다 |
-| 머지 조건 | **본인 제외 1명 이상 Approve.** 단, 다른 사람 담당 파일(TEAM_CONTRACT §2)을 고쳤다면 **그 담당자의 Approve가 있어야** 머지한다 |
-| 머지 | 승인 후 **PR 작성자 본인**이 "Create a merge commit"으로 머지 |
+| 머지 | **PR 작성자 본인**이 "Create a merge commit"으로 머지 |
 | 머지 후 | 로컬에서 `git switch main` → `git pull origin main` |
 
-리뷰 수정 요청은 **같은 브랜치에 커밋을 추가해서 push**하면 PR에 자동 반영된다. PR을 새로 만들지 않는다.
+### 리뷰 (코드 PR만)
 
-### 리뷰어가 할 일
+| PR 종류 | 머지 조건 |
+|---|---|
+| **코드가 바뀌는 PR** | 나를 뺀 팀원 3명을 Reviewers에 지정 → **아무나 1명이 Approve + 코멘트 1줄**이면 머지 |
+| **오타·작은 문서 수정 PR** | 리뷰 없이 **본인이 바로 머지** |
 
-과제는 **모든 팀원의 리뷰 참여**를 평가하므로 한 사람에게 몰리지 않게 돌아가며 맡는다. "LGTM"만 남기지 말고 최소 1개는 구체적으로 쓴다.
-
-- TEAM_CONTRACT의 함수 이름·인자·반환값과 같은가?
-- 원본 배열을 수정하지 않는가? 잘못된 입력에 오류가 나는가?
-- 테스트가 정상 1개 + 오류 1개 이상 있는가?
-- 비밀정보나 불필요한 파일(`__pycache__`, 이미지 등)이 섞이지 않았는가?
+- 코멘트는 "무엇을 확인했는지" 한 줄이면 된다. 예: "로컬에서 테스트 돌려 봤고 통과합니다", "ROI 경계 처리 확인했습니다".
+- 코드 리뷰는 **과제 평가 항목**(전원 참여)이므로 한 사람에게 몰리지 않게 돌아가며 맡는다.
+- 수정 요청을 받으면 **같은 브랜치에 커밋을 추가해서 push**한다. PR을 새로 만들지 않는다.
 
 ---
 
@@ -165,7 +176,7 @@ git push origin v1.0.0
 ## 8. 저장소 설정 (소유자 김지빈, 1회)
 
 1. **Settings → General → Pull Requests**: "Allow merge commits"만 켜고 squash/rebase는 끈다. "Automatically delete head branches" 켠다.
-2. **Settings → Rules → Rulesets → New branch ruleset** (대상 `main`): Require a pull request (approvals 1), Block force pushes, Restrict deletions.
+2. **Settings → Rules → Rulesets → New branch ruleset** (대상 `main`): Require a pull request (**Required approvals 0** — 문서 PR을 본인이 머지할 수 있도록. 코드 PR의 1명 승인은 팀 규칙으로 지킨다), Block force pushes, Restrict deletions.
 
 > 무료 계정의 **비공개** 저장소에는 2번 보호 규칙이 적용되지 않는다. 저장소를 공개로 하거나(비밀정보 확인 후), 소유자가 GitHub Student Developer Pack을 신청하면 적용된다.
 
@@ -200,7 +211,7 @@ git push origin v1.0.0
 | 브랜치 만들기 | VS Code 왼쪽 아래 브랜치 이름(`main`) 클릭 → "Create new branch..." → `내아이디/기능명` 입력. 그 전에 같은 곳에서 main 상태로 "Sync"(↻) 눌러 최신화 |
 | 커밋 | 왼쪽 **소스 제어** 아이콘 → 올릴 파일 옆 **`+`** 를 하나씩 클릭 (모두 올리기 금지) → 위 입력칸에 `feat: 무엇을 했는지 (#12)` → **Commit** |
 | push | **Publish Branch** (처음) 또는 **Sync Changes** 클릭 |
-| PR | GitHub 저장소 페이지에 뜨는 노란 **"Compare & pull request"** 클릭 → base가 `main`인지 확인 → 템플릿 빈칸 채우기 → Reviewers에 나머지 3명 → **Create pull request** |
+| PR | GitHub 저장소 페이지에 뜨는 노란 **"Compare & pull request"** 클릭 → base가 `main`인지 확인 → 템플릿 빈칸 채우기 → (코드 PR이면) Reviewers에 나머지 3명 → **Create pull request** |
 | 머지 후 | VS Code에서 브랜치를 `main`으로 바꾸고 Sync |
 
 **직접 하면서 AI 도움만 받기:** "이 변경으로 커밋 메시지 써줘", "PR 본문 써줘"라고 하면 AI가 실행하지 않고 규칙에 맞는 문구만 만들어 준다. 그것을 복사해 붙여 넣으면 된다.
