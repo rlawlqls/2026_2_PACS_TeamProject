@@ -6,9 +6,11 @@ __pycache__/
 !.env.example
 .streamlit/secrets.toml
 *serviceAccount*.json
-firebase-adminsdk*.json
+*firebase-adminsdk*.json
 *.log
 .DS_Store
+data/
 sample_data/*.png
 sample_data/*.jpg
 !sample_data/README.md
+
