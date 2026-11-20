@@ -1,9 +1,10 @@
-# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.0
+# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.1
 
 > **목적:** A·B·C·D가 다른 파일에서 동시에 개발해도, 마지막에 `app.py`에서 곧바로 연결되도록 **함수 계약(API), 데이터 구조, 화면·권한·업무 상태, 저장, 검증, Git 규칙**을 고정한다.  
 > **적용 대상:** 초급프로젝트 PBL 교육용 웹 PACS / 팀 4명 / Python + Streamlit + Firebase Authentication + Cloud Firestore + JCloud  
-> **문서 상태:** **v2.0 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 Issue #0에 동의 댓글을 남긴다.**  
-> **Git 규칙:** 브랜치·커밋·이슈·PR·리뷰 규칙은 [`docs/GIT_RULES.md`](GIT_RULES.md)가 최상위 규칙이다. 이 문서와 다르면 GIT_RULES를 따른다.
+> **문서 상태:** **v2.1 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 킥오프 이슈에 동의 댓글을 남긴다.**  
+> **Git 규칙:** 브랜치·커밋·이슈·PR·리뷰 규칙은 [`docs/GIT_RULES.md`](GIT_RULES.md)가 최상위 규칙이다. 이 문서와 다르면 GIT_RULES를 따른다.  
+> **v2.1 변경 요약:** (1) UI 소유권 — A는 `app.py`·공통 테마(`ui/style.py`)·로그인/목록/등록 화면, B/C/D는 자기 함수 + 자기 탭 파일 (§0, §1, §2, §7, §15). (2) 개발 모드 추가 (§7.1). (3) 팀원 시작 전 A 선행 작업 정리 (§15). (4) 영상 저장 방식(로컬 폴더로 개발, 배포 저장소는 배포 전 확정)·로그인 방식·서비스 계정 키 전달 규칙 (§0, §10, §11). (5) 테스트 방식 — 샘플은 코드로 생성, 테스트 파일을 담당별로 분리, 상태전이 순수 함수 `check_transition` (§2, §3.4, §4, §8). (6) 비교 실험·특화 기능 검증 기록 (§8.5). (7) 임계값 파일을 C 소유로 분리, `.gitignore`의 서비스 계정 키 패턴 수정.
 
 ---
 
@@ -13,18 +14,19 @@
 |---|---|---|
 | 백엔드/화면 | Python 3.11 + Streamlit 1.32 단일 앱 | 안정 버전, Firebase SDK 호환 |
 | 인증/DB/배포 | Firebase Authentication / Cloud Firestore / JCloud `[과제 필수]` | 변경 불가 |
-| 실제 영상 저장 | **Firebase Storage** 무료 플랜(5GB); 원본: `originals/{case_id}/{image_id}.png`; 처리 결과: `processed/{case_id}/{run_id}.png` | 무료 한도 내 시연 충분 |
-| 영상 입력 | PNG/JPG/JPEG, **8-bit grayscale `np.ndarray`** (H,W) uint8; 10MB 이하; DICOM 범위 밖 `[팀 합의안]` | 확정 |
+| 로그인 방식 | Streamlit 서버가 Firebase Auth REST API(`accounts:signInWithPassword`, 웹 API 키)로 이메일·비밀번호 로그인 → 받은 ID token을 Admin SDK로 검증 → Firestore `users/{uid}`에서 역할 조회 (§10.5) | Admin SDK만으로는 비밀번호 로그인을 할 수 없음 |
+| 실제 영상 저장 | **`services/storage.py` 인터페이스**(§10.4) 뒤에 저장한다. 개발은 로컬 폴더(`STORAGE_DIR`), 배포 저장소는 배포 담당(A)이 배포 전에 **JCloud 영구 저장 공간 또는 Firebase Storage** 중 확정한다. 경로 규칙: 원본 `originals/{case_id}/{image_id}.png`, 처리 결과 `processed/{case_id}/{run_id}.png` | 안내문은 두 방식을 모두 허용한다. Firebase Storage는 Blaze 요금제(결제 카드 등록)가 필요하므로 JCloud 영구 저장을 먼저 확인한다 |
+| 영상 입력 | PNG/JPG/JPEG, **8-bit grayscale `np.ndarray`** (H,W) uint8; 10MB 이하; DICOM 범위 밖 (보고서에 지원 형식과 함께 명시) `[팀 합의안]` | 확정 |
 | 원본 보관 | 원본 파일 절대 덮어쓰기 금지 `[과제 필수]` | 변경 불가 |
 | 필수 영상처리 3종 | B: CLAHE / C: Gaussian / D: Median `[팀 합의안]` | 확정 |
-| 화질 특화 기능 | C가 밝기·대비·흐림 점수 계산, A 등록 시 실행, A 결과 표시, D 재검토로 연결 | 확정 |
-| UI↔기능 연결 | **A가 `app.py` UI 전체 틀 담당**; B/C/D는 함수(로직)만 구현해서 넘김; A가 함수를 화면에 연결; UI 코드가 Firestore에 직접 쓰지 않기 | 통합 담당 A |
-| UI 개발 방식 | A가 공통 레이아웃·탭 구조·스타일 먼저 잡기; B/C/D는 담당 탭 내부 UI를 `app.py`에 추가; `app.py` 탭 구조는 A만 수정 | A Day 1~2 완료 후 |
+| 화질 특화 기능 | C가 밝기·대비·흐림 점수 계산, A 등록 시 실행, C의 자동 점검 탭에서 결과 표시, D 재검토로 연결 | 확정 |
+| UI↔기능 연결 | **A가 `app.py`, 공통 테마(`ui/style.py`), 탭 틀, 로그인·케이스 목록·영상 등록 화면 담당**; **B/C/D는 자기 함수 + 자기 탭 파일(`ui/*.py`) 내부 UI 담당**; UI 코드가 Firestore에 직접 쓰지 않고 `services/` 함수만 호출 | 디자인·테마 통일은 A가 틀로 보장 |
+| UI 개발 방식 | A가 공통 레이아웃·탭 구조·스타일·개발 모드(§7.1)를 **팀원 시작 전에** 만든다; 각 탭 파일은 `render()` 함수 하나만 내보낸다; `app.py`·`ui/style.py` 변경은 A만 (필요하면 PR로 A에게 요청) | A 선행 작업 |
 | ID 형식 | `case_id = "case_" + uuid4().hex`, `image_id = "img_" + uuid4().hex`, `run_id = "run_" + uuid4().hex`, `check_id = "qc_" + uuid4().hex` | 확정 |
 | 저장 시간 | 모든 Firestore Timestamp는 **UTC 기준 서버 시간** (`SERVER_TIMESTAMP`); 화면 표시만 KST 변환 | 확정 |
 | 검토 상태 | `registered` → `assigned` → `reviewing` → `completed`; 예외 `needs_review` | 확정 |
 | 점검 결과 | `pass` / `needs_check`; 저장 계층 오류 시 `error`; **의학적 적합 판정 아님** | 확정 |
-| 코드 리뷰 | 작업당 Issue → `아이디/기능명` 브랜치 → 커밋 → PR → **코드 PR은 다른 팀원 1명 리뷰** → 병합 (상세: `docs/GIT_RULES.md`) | `[과제 필수]` |
+| 코드 리뷰 | 작업당 Issue → `아이디/기능명` 브랜치 → 커밋 → PR → **코드 PR은 다른 팀원 1명 리뷰**(계약·소유권 변경 PR은 영향받는 팀원 전원 Approve) → 병합 (상세: `docs/GIT_RULES.md`) | `[과제 필수]` |
 | Python 환경 | Python 3.11.x, venv 사용 | 확정 |
 | 의존성 버전 | `requirements.txt` 버전 고정 (아래 §12 참고) | 확정 |
 
@@ -37,20 +39,21 @@
 ```text
 [Streamlit 브라우저]
    ├─ Firebase 로그인/로그아웃 (Auth)
-   └─ app.py  ← A가 전체 UI 틀 담당 (탭 구조, 공통 스타일, 함수 호출)
-       ├─ A: services/cases.py, services/storage.py, services/auth.py
-       │    ├─ Firebase Storage: 이미지 바이너리 원본/결과
+   └─ app.py  ← A: 탭 구조 + 공통 테마(ui/style.py); 각 탭은 ui/*.py의 render()를 호출
+       ├─ A: ui/login.py, ui/case_list.py, ui/register.py
+       │    services/cases.py, services/storage.py, services/auth.py
+       │    ├─ 영상 저장소(storage.py): 이미지 바이너리 원본/결과 (로컬 폴더 또는 Firebase Storage)
        │    └─ Cloud Firestore: 메타데이터/업무/처리 기록
-       ├─ B: processing/clahe.py, processing/roi.py   ← 함수만; UI는 A가 연결
-       ├─ C: processing/gaussian.py, quality/checker.py  ← 함수만; UI는 A가 연결
-       └─ D: processing/median.py, services/workflow.py, services/reports.py  ← 함수만; UI는 A가 연결
+       ├─ B: processing/clahe.py, processing/roi.py  + ui/viewer.py (뷰어·ROI 탭)
+       ├─ C: processing/gaussian.py, quality/checker.py  + ui/quality_panel.py (자동 점검 탭)
+       └─ D: processing/median.py, services/workflow.py, services/reports.py  + ui/workflow_panel.py (검토·이력 탭)
 ```
 
 **UI 개발 원칙:**
-- A가 `app.py`에 탭 구조와 공통 스타일을 먼저 만든다 (Day 1~2).
-- B/C/D는 각자 담당 탭 내부에 UI 요소를 추가한다 (Day 3~4).
-- `app.py`의 탭 구조·공통 레이아웃은 **A만 수정**; B/C/D가 건드려야 할 경우 PR로 A에게 요청.
-- B/C/D의 함수는 Streamlit을 직접 호출하지 않는다 (순수 로직만).
+- A가 `app.py` 탭 구조, 공통 스타일(`ui/style.py`), 개발 모드를 **팀원 시작 전에** 만든다.
+- B/C/D는 각자 함수를 구현하고, **자기 탭 파일의 `render()`**를 채운다. 모든 화면은 `ui/style.py`의 공통 테마·헬퍼를 사용해 디자인을 통일한다 (탭 UI는 Day 3~4).
+- `app.py`의 탭 구조·공통 레이아웃·`ui/style.py`는 **A만 수정**; B/C/D가 건드려야 할 경우 PR로 A에게 요청.
+- 처리·계산 함수(`processing/`, `quality/`, `services/`)는 Streamlit을 직접 호출하지 않는다 (순수 로직만). Streamlit 호출은 `ui/` 파일에만 둔다.
 
 ### 실제 정상 시나리오 (팀 전체가 동일한 순서로 구현)
 
@@ -69,25 +72,37 @@
 ## 2. 폴더 및 파일 소유권 (오늘 그대로 생성)
 
 ```text
-pacs-quality-check/
-├── app.py                      # A: UI 통합(각 팀원 UI 모듈 임포트)
+2026_2_PACS_TeamProject/
+├── AGENTS.md                   # AI 도구 공통 작업 규칙 (CLAUDE.md가 이 파일을 가리킴)
+├── CLAUDE.md
+├── app.py                      # A: 탭 구조·공통 레이아웃 (각 탭의 render() 임포트)
 ├── requirements.txt            # 공통 의존성 (버전 고정 — §12 참고)
 ├── .gitignore
 ├── .env.example                # 변수 이름만; 실제 비밀정보 금지
-├── README.md
+├── README.md                   # A가 뼈대(설치·실행·테스트·Firebase 설정·시연 데이터·JCloud), 각자 자기 절을 추가
+├── conftest.py                 # A: 공통 pytest 설정, 샘플 영상 fixture (코드로 생성 — §3.4)
+├── .streamlit/
+│   └── config.toml             # A: 공통 테마(색·폰트). secrets.toml은 커밋 금지
+├── .github/
+│   ├── ISSUE_TEMPLATE/         # feature.md, bug.md, contract-change.md
+│   └── pull_request_template.md
 ├── docs/
-│   ├── TEAM_CONTRACT.md        # 이 문서: 계약 바뀌면 PR 필수
+│   ├── TEAM_CONTRACT.md        # 이 문서: 계약 바뀌면 이슈 + PR 필수
+│   ├── GIT_RULES.md            # Git 최상위 규칙 + 팀원 GitHub 아이디 표
+│   ├── DEV_PLAN.md
 │   ├── TEST_PLAN.md
+│   ├── experiments/            # 담당별 비교 실험·특화 기능 검증 기록 (§8.5)
 │   └── assets/                 # 보고서용 다이어그램/안전한 샘플
 ├── src/
+│   ├── __init__.py             # A: 각 하위 폴더에도 빈 __init__.py를 둔다 (import 오류 방지)
 │   ├── models.py               # A 작성, 전원 리뷰: TypedDict/데이터 모델
-│   ├── config.py               # A: 설정, 임계값 로드
+│   ├── config.py               # A: 설정 (DEFAULT_THRESHOLDS는 quality/thresholds.py에서 import해 노출)
 │   ├── errors.py               # A: 공통 예외
 │   ├── services/
-│   │   ├── auth.py             # A: 세션, 역할 확인
+│   │   ├── firebase_client.py  # A: Firebase 초기화, get_db() (Firestore 공용 클라이언트)
+│   │   ├── auth.py             # A: 로그인(login), 세션, 역할 확인(get_user_role)
 │   │   ├── storage.py          # A: Storage 읽기/쓰기
 │   │   ├── cases.py            # A: save/load/search
-│   │   ├── quality_history.py  # C 구현 + A 저장 API 조율
 │   │   ├── workflow.py         # D: 배정/상태 전환
 │   │   └── reports.py          # D: 메모/리포트/이력
 │   ├── processing/
@@ -96,19 +111,29 @@ pacs-quality-check/
 │   │   ├── gaussian.py         # C
 │   │   └── median.py           # D
 │   ├── quality/
+│   │   ├── thresholds.py       # C: DEFAULT_THRESHOLDS (임계값 보정은 C가 직접 수정)
 │   │   └── checker.py          # C: 화질 판정 로직
 │   └── ui/
-│       ├── viewer.py           # A: 뷰어·ROI 화면 (B 함수 호출)
-│       ├── quality_panel.py    # A: 자동 점검 결과 화면 (C 함수 호출)
-│       └── workflow_panel.py   # A: 검토·이력 화면 (D 함수 호출)
-├── tests/
-│   ├── test_processing.py      # B/C/D 공동, 각자 자기 함수 검사
+│       ├── style.py            # A: 공통 테마·공용 UI 헬퍼 (A만 수정)
+│       ├── login.py            # A: 로그인 화면
+│       ├── case_list.py        # A: 케이스 목록 화면
+│       ├── register.py         # A: 영상 등록 화면 (등록 → 자동 점검 호출 흐름)
+│       ├── viewer.py           # B: 뷰어·ROI 탭 (처리 알고리즘 3종 호출 포함)
+│       ├── quality_panel.py    # C: 자동 점검 결과 탭
+│       └── workflow_panel.py   # D: 검토·이력 탭
+├── tests/                      # 담당별 파일로 분리 (여러 명이 같은 파일을 고치지 않게)
+│   ├── test_clahe.py           # B
+│   ├── test_roi.py             # B
+│   ├── test_gaussian.py        # C
 │   ├── test_quality.py         # C
+│   ├── test_median.py          # D
+│   ├── test_workflow.py        # D (check_transition 전수 + DB 래퍼)
 │   ├── test_cases.py           # A
-│   ├── test_workflow.py        # D
+│   ├── test_auth.py            # A (비로그인·권한 없음 거절)
 │   └── test_integration.py     # A 총괄, 전원 참여
 └── sample_data/
     ├── README.md               # 공개·가상 영상 출처/라이선스; 민감정보 금지
+    ├── generate_samples.py     # C: 샘플 생성 스크립트 (생성물 PNG는 커밋 안 함 — §9.2)
     ├── normal.png
     ├── dark.png
     ├── bright.png
@@ -119,7 +144,10 @@ pacs-quality-check/
     └── invalid.txt
 ```
 
-**규칙:** 다른 사람 소유 파일을 변경해야 하면 PR 설명에 이유와 영향을 기록하고 해당 담당자에게 알린다. 공통 스키마(`models.py`)와 계약 문서는 어느 한 사람의 독단으로 바꾸지 않는다.
+**규칙:**
+- 다른 사람 소유 파일을 변경해야 하면 PR 설명에 이유와 영향을 기록하고 해당 담당자에게 알린다. 공통 스키마(`models.py`)와 계약 문서는 어느 한 사람의 독단으로 바꾸지 않는다.
+- `ui/` 안에서는 **자기 탭 파일만** 수정한다. `ui/style.py`, `app.py`, A의 화면 파일은 A만 수정한다.
+- 탭 파일은 `render()` 함수 하나만 외부에 내보내고, 다른 탭 파일을 직접 임포트하지 않는다. 탭끼리 값을 주고받을 때는 `st.session_state` 키(§7)로만 한다.
 
 ---
 
@@ -158,7 +186,7 @@ import numpy as np
 | `event_id` | `str` | `"evt_" + uuid.uuid4().hex` | `evt_f20d...` |
 | `uid` | `str` | Firebase UID (검증된 세션에서) | Firebase 자동 생성 |
 | `created_at`, `updated_at` | Firestore SERVER_TIMESTAMP (UTC) | `firestore.SERVER_TIMESTAMP` | 자동 |
-| 경로 | `str` | `originals/{case_id}/{image_id}.png` | 이미지 파일은 Storage, 경로는 Firestore |
+| 경로 | `str` | `originals/{case_id}/{image_id}.png` | 이미지 파일은 영상 저장소, 경로는 Firestore |
 | `schema_version` | `int` | 상수 `1` | `1` |
 
 **UUID 생성 표준 코드:**
@@ -190,6 +218,12 @@ metadata = {
 - 파일명·길이·크기·등록시각은 클라이언트를 신뢰하지 않고 A가 실제 파일에서 생성·검증한다.
 - `image_bytes`에는 **PNG/JPEG 파일 자체의 bytes**를 넘김. `np.ndarray.tobytes()`와 혼동하지 않는다.
 
+### 3.4 테스트용 샘플 영상 — 파일이 아니라 코드로 만든다
+
+- 샘플 PNG는 커밋하지 않으므로(§9.2), 테스트가 PNG 파일을 읽으면 새로 clone한 팀원은 전부 실패한다.
+- C가 `sample_data/generate_samples.py`에 `make_samples(seed=0) -> dict[str, np.ndarray]`를 만들고, 루트 `conftest.py`의 fixture가 이 함수를 호출한다. 파일 저장 기능(`python sample_data/generate_samples.py`)은 시연·개발 모드 화면 확인용이다.
+- 난수는 `seed`를 고정해 같은 영상이 재현되게 한다.
+
 ---
 
 ## 4. 팀원 간 함수 계약(API) — 이 시그니처로 구현
@@ -200,7 +234,7 @@ metadata = {
 
 ```python
 def save_case(metadata: dict, image_bytes: bytes) -> tuple[str, str]:
-    """원본을 Firebase Storage에 보존하고 Firestore 케이스·영상 생성.
+    """원본을 영상 저장소(storage.py)에 보존하고 Firestore 케이스·영상 생성.
     반환: (case_id, image_id); 실패 시 AppError 계열 예외.
     권한: registrar 또는 admin.
     Storage 업로드 성공 후 Firestore 기록 실패 시:
@@ -234,6 +268,26 @@ def save_quality_check(image_id: str, result: dict, actor_uid: str | None = None
     cases/{case_id}.latest_check_id, latest_quality_status도 동시 업데이트.
     반환: check_id.
     """
+```
+
+**A의 공용 기반 (B/C/D가 호출):**
+
+```python
+# src/services/firebase_client.py
+def get_db(): ...   # Firestore 클라이언트. Firebase 초기화는 한 번만 수행 (§11.3)
+
+# src/services/auth.py
+def login(email: str, password: str) -> dict:
+    """Firebase Auth REST 로그인(§10.5). 반환 {'uid','role','display_name','id_token'};
+    실패하면 PermissionDeniedError (원인은 구분하지 않는 일반 메시지)."""
+
+def get_user_role(uid: str) -> str:
+    """users/{uid}.role ('registrar'/'reviewer'/'admin'); 문서가 없거나 active가 false면 PermissionDeniedError."""
+
+# src/services/storage.py  (인터페이스는 §10.4)
+def upload_image(path: str, image_bytes: bytes, content_type: str = "image/png") -> str: ...
+def download_image(path: str) -> bytes: ...
+def delete_image(path: str) -> None: ...
 ```
 
 **A와 C의 조율:** C는 `check_quality()`에서 **순수 계산만 수행**(Firestore 직접 접근 금지), A가 `save_quality_check()`로 영구 저장한다. 화질 측정으로 원본 저장 전체가 실패하게 만들지 않는다.
@@ -280,7 +334,7 @@ def check_quality(gray: np.ndarray, thresholds: dict) -> dict:
 #### `thresholds` 표준 (임시 기본값; 실제 샘플 확인 후 보정)
 
 ```python
-# src/config.py에 DEFAULT_THRESHOLDS로 정의
+# src/quality/thresholds.py에 DEFAULT_THRESHOLDS로 정의 (C 소유. src/config.py는 이를 import해서 노출)
 DEFAULT_THRESHOLDS = {
     "brightness_min": 50.0,       # mean < 50 → too_dark
     "brightness_max": 205.0,      # mean > 205 → too_bright
@@ -342,6 +396,21 @@ def get_case_history(case_id: str) -> list[dict]:
 ```
 
 **호출 예:** `transition_case(case_id, "start_review", uid)`, `transition_case(case_id, "request_recheck", uid, "낮은 대비 확인 요청")`.
+
+**상태 규칙은 DB 없는 순수 함수로 분리한다 (Firebase 키 없이 단위 테스트):**
+
+```python
+def check_transition(current_status: str, action: str, actor_role: str,
+                     is_assigned_reviewer: bool, note: str = "",
+                     has_note_or_report: bool = False) -> str:
+    """§6.2 표를 그대로 구현한다. 허용이면 다음 status를 반환한다.
+    역할·담당 위반 → PermissionDeniedError,
+    표에 없는 전이 또는 complete_review 조건(메모·리포트 1개 이상) 미충족 → StateConflictError,
+    request_recheck의 사유(note)가 비어 있음 → ValidationError.
+    """
+```
+
+`transition_case`는 `get_db()`로 현재 상태·사용자 역할·배정 여부를 읽어 `check_transition`을 호출하고, 결과를 트랜잭션으로 저장한다. `test_workflow.py`는 `check_transition`의 허용·금지 조합을 전수 검사한다.
 
 ### 공통 예외 계약
 
@@ -419,6 +488,8 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 
 **권한 범위:** `registrar`는 자신이 등록한 케이스, `reviewer`는 자신에게 배정된 케이스만 조회. `admin`은 전부. 검색·파일 다운로드·메모 조회에서도 동일한 필터를 적용한다.
 
+**비로그인·비활성 계정:** 세션에 검증된 uid가 없거나 `users/{uid}.active`가 false이면 모든 서비스 함수가 `PermissionDeniedError`를 낸다. 화면에서 버튼을 숨기는 것만으로는 충분하지 않다.
+
 ### 6.2 상태 전이 표
 
 | 현재 `status` | `action` | 다음 `status` | 실행자 / 조건 |
@@ -439,21 +510,31 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 
 | 화면(탭) | UI 담당 | 함수 제공 | 호출 함수 | 반드시 보여줄 정보 |
 |---|---|---|---|---|
-| 로그인 | **A** | A | `auth` | 로그인/로그아웃, 역할, 권한 오류 |
-| 케이스 목록 | **A** | A | `search_cases` | 케이스 ID, 검사 종류, 담당자, 업무 상태, 자동 점검 상태 |
-| 영상 등록 | **A** | A | `save_case` → `load_image` → `check_quality` → `save_quality_check` | 업로드 결과, 자동 점검 사유, 검사 실패 안내 |
-| 영상 뷰어 | **A** | B | `load_image`, `apply_clahe/gaussian/median`, `save_processing_run` | 원본/결과 나란히, 알고리즘 선택, 처리 설정, 확대·축소/이동/초기화 |
-| ROI 분석 | **A** | B | `get_roi_stats` | ROI 좌표·크기, 평균·분산·히스토그램 |
-| 자동 점검 결과 | **A** | C | `check_quality`, `save_quality_check` | 점수 3종, 적용 임계값, 경고 사유, 교육용 문구 |
-| 검토·재검토 | **A** | D | `assign_case`, `transition_case`, `add_review_note` | 상태 변경 버튼, 사유, 담당자·이력 |
-| 이력·리포트 | **A** | D | `get_case_history`, `get_processing_runs` | 작성자, 설정, 실행/저장 시간, 결과 재열기 |
+| 로그인 | **A** (`ui/login.py`) | A | `auth` | 로그인/로그아웃, 역할, 권한 오류 |
+| 케이스 목록 | **A** (`ui/case_list.py`) | A | `search_cases` | 케이스 ID, 검사 종류, 담당자, 업무 상태, 자동 점검 상태 (처리할 업무/완료된 업무를 구분하는 필터) |
+| 영상 등록 | **A** (`ui/register.py`) | A | `save_case` → `load_image` → `check_quality` → `save_quality_check` | 업로드 결과, 자동 점검 사유, 검사 실패 안내 |
+| 영상 뷰어 | **B** (`ui/viewer.py`) | B | `load_image`, `apply_clahe/gaussian/median`, `save_processing_run` | 원본/결과 나란히, 알고리즘 선택, 처리 설정, 확대·축소/이동/초기화 |
+| ROI 분석 | **B** (`ui/viewer.py`) | B | `get_roi_stats` | ROI 좌표·크기, 평균·분산·히스토그램 |
+| 자동 점검 결과 | **C** (`ui/quality_panel.py`) | C | `check_quality`, `save_quality_check` | 점수 3종, 적용 임계값, 경고 사유, 교육용 문구 |
+| 검토·재검토 | **D** (`ui/workflow_panel.py`) | D | `assign_case`, `transition_case`, `add_review_note` | 상태 변경 버튼, 사유, 담당자·이력 |
+| 이력·리포트 | **D** (`ui/workflow_panel.py`) | D | `get_case_history`, `get_processing_runs` | 작성자, 설정, 실행/저장 시간, 결과 재열기 |
 
-> **UI 담당은 전부 A.** B/C/D는 함수만 완성해서 넘기고, A가 각 탭에 연결한다.  
-> B/C/D가 담당 탭 내부 UI를 직접 추가할 때는 A가 만든 공통 스타일을 그대로 사용하고, `app.py` 탭 구조는 건드리지 않는다.
+> **UI 틀·공통 테마는 A, 각 탭 내부는 해당 탭 담당자.** 모든 화면은 `ui/style.py`의 공통 테마·헬퍼를 사용해 같은 디자인을 유지하고, `app.py` 탭 구조는 건드리지 않는다.  
+> 뷰어 탭(B)은 Gaussian(C)·Median(D) 함수도 호출하지만 탭 화면은 B가 소유한다. 해당 함수의 시그니처·동작 변경이 필요하면 담당자(C/D)에게 요청한다.
 
-- Streamlit `st.session_state` 키 접두사: `auth_*`, `selected_case_id`, `selected_image_id`, `viewer_*`, `roi_*`, `quality_*`, `workflow_*`.
+- Streamlit `st.session_state` 키 접두사: `auth_*`, `selected_case_id`, `selected_image_id`, `viewer_*`, `roi_*`, `quality_*`, `workflow_*`. **자기 탭 접두사 키만 쓰고**, 탭 사이 공유는 `selected_case_id`, `selected_image_id`로만 한다.
 - 처리 함수가 버튼 UI를 그리거나 Streamlit 상태를 직접 바꾸지 않도록 분리.
 - 영상 선택이 달라지면 이전 ROI·처리 결과·경고 표시 캐시를 초기화.
+- 뷰어의 확대·이동·ROI 선택 방식(예: `streamlit-drawable-canvas`, plotly, 좌표 입력 위젯)은 **B가 첫 이슈에서 Streamlit 1.32와의 호환을 확인해 정한다.** 새 라이브러리는 이슈에 결과를 기록하고 팀 합의 후 `requirements.txt`에 추가한다. 맞는 라이브러리가 없으면 좌표 입력 + 이미지 위 사각형 표시로 대체한다.
+
+### 7.1 개발 모드 (Firebase 없이 화면 확인) — A가 시작 전에 구현
+
+B/C/D는 Firebase 키 없이 자기 탭을 띄워 볼 수 있어야 한다.
+
+- `APP_ENV=development`일 때만 동작한다: 로그인을 건너뛰고 가상 사용자(`admin` 역할)를 세션에 넣고, `sample_data/`의 샘플 이미지를 불러오는 개발용 케이스를 제공한다.
+- 샘플 PNG는 커밋하지 않으므로(§9.2), 각자 로컬에서 `python sample_data/generate_samples.py`로 만든다.
+- **`APP_ENV=production`(JCloud 배포)에서는 개발 모드가 반드시 꺼져 있어야 한다.** 로그인 우회가 배포 환경에서 켜지면 권한 검사가 무력화된다. 배포 전 체크 항목(§11.2)에 포함.
+- 개발 모드는 화면 확인용이며, 권한·상태전이 검증은 실제 Firebase에서 한다.
 
 ---
 
@@ -474,13 +555,14 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 
 **샘플 생성 스크립트:** `sample_data/generate_samples.py` — C가 작성, `sample_data/`에 저장.  
 저작권 없음(직접 생성), `sample_data/README.md`에 생성 방법·버전 기록.
+**선택:** 합성 영상만으로 검증이 약하면 공개 데이터셋 영상 1~3장을 PNG로 변환해 추가할 수 있다. 이때 `sample_data/README.md`에 출처·이용 조건·모의 케이스임을 반드시 적고, 실제 환자정보가 담긴 자료는 쓰지 않는다 (과제 안내문).
 
 ### 8.2 담당별 최소 단위 테스트
 
-- **A:** 정상 PNG/JPEG 업로드·재열기, 파일 깨짐/크기 초과/권한 실패, DB 저장 실패 시 고아 파일 정리, 새로고침/재시작 후 재조회.
+- **A:** 정상 PNG/JPEG 업로드·재열기, 파일 깨짐/크기 초과/권한 실패, **비로그인 요청 거절**, 역할별 조회 범위(registrar/reviewer/admin), DB 저장 실패 시 고아 파일 정리, 새로고침/재시작 후 재조회.
 - **B:** CLAHE 결과 shape/dtype 유지, 입력 배열 원본 불변, ROI 평균·분산·256-bin 합계 `== pixel_count`, 경계 바깥 ROI 오류.
 - **C:** Gaussian 홀수 커널 제약, 인위적 밝기·대비·흐림 점검, 경고 사유·순서와 threshold 버전 고정, 원본 불변.
-- **D:** Median 커널 오류, 허용/금지 상태 전이, 배정되지 않은 reviewer 거절, 재검토 사유 없는 요청 거절, 중복 상태변경과 이력 확인.
+- **D:** Median 커널 오류, `check_transition`의 허용/금지 상태 전이 전수(§4), 배정되지 않은 reviewer 거절, 재검토 사유 없는 요청 거절, 중복 상태변경과 이력 확인.
 - **전원:** 등록→자동 점검→영상처리 저장→ROI→메모/재검토→완료→재조회 통합 시나리오, JCloud 배포 주소에서 재실행.
 
 ### 8.3 테스트 증빙 표준
@@ -503,7 +585,16 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 - [ ] 권한·상태변경이 있는 기능이면 부정 권한/잘못된 상태를 거절함
 - [ ] 새로고침/앱 재시작 후 관련 데이터 재조회 확인
 - [ ] 담당 코드/설정/실험 한계 설명을 README 또는 docs에 추가
+- [ ] 담당 탭이 있으면 `ui/style.py` 공통 테마를 사용하고 개발 모드에서 화면이 뜸
 - [ ] 본인 브랜치 커밋 + PR + 다른 팀원의 리뷰 후 병합
+
+### 8.5 비교 실험·특화 기능 검증 기록 (보고서 필수 근거)
+
+과제 안내문은 알고리즘별 비교 실험과 특화 기능의 효과 검증을 요구한다. 각자 `docs/experiments/` 아래에 기록하고 PR로 남긴다.
+
+- **알고리즘별 (B/C/D 각자):** 입력·출력·처리 원리, 같은 원본에서 조건이 다른 영상(밝기·잡음 등) 3장 이상 × 파라미터 2개 이상 비교, ROI 좌표·크기와 평균·분산·히스토그램, 효과가 있었던 조건·정보가 손실되거나 효과가 부족했던 조건·한계.
+- **특화 기능 (C 주관, 전원 참여):** 모의 업무 2~3개를 "점검 기능 없이 / 있을 때"로 비교해 확인 단계 수와 발견한 누락을 기록하고, 샘플별 오탐·미탐 표를 만든다.
+- 기록 형식은 §8.3 테스트 증빙 표준(준비 상태·수행·예상·실제·결과)을 따른다. 보기 좋은 화면만으로 성능 향상을 단정하지 않는다.
 
 ---
 
@@ -539,9 +630,10 @@ __pycache__/
 !.env.example
 .streamlit/secrets.toml
 *serviceAccount*.json
-firebase-adminsdk*.json
+*firebase-adminsdk*.json
 *.log
 .DS_Store
+data/
 sample_data/*.png
 sample_data/*.jpg
 !sample_data/README.md
@@ -551,15 +643,18 @@ sample_data/*.jpg
 
 ## 10. Firebase 초기 설정 가이드 (A 담당, Day 0)
 
+> Firebase는 A 본인 작업(저장·로그인) 전용이다. B/C/D는 개발 모드(§7.1)로 작업하므로 Firebase 설정을 기다리지 않는다.
+
 ### 10.1 Firebase 프로젝트 생성
 
 1. [Firebase Console](https://console.firebase.google.com) → **프로젝트 추가** → 이름: `pacs-quality-check`
 2. **Authentication** → 시작하기 → **이메일/비밀번호** 로그인 방식 사용 설정
-3. **Firestore Database** → 시작하기 → **테스트 모드** (초기 개발용; 배포 전 보안 규칙 적용)
-4. **Storage** → 시작하기 → 무료 플랜(5GB) 확인 → 기본 버킷 생성
+3. **Firestore Database** → 시작하기 → **테스트 모드** (초기 개발용). 서버(Admin SDK)는 보안 규칙을 우회하므로, 배포 전에 클라이언트 접근을 모두 막는 규칙(`allow read, write: if false;`)으로 바꾼다.
+4. **Storage** — 지금은 만들지 않는다. Firebase Storage는 Blaze 요금제(결제 카드 등록)가 필요하다 (§0). 배포 때 JCloud 영구 저장 공간을 먼저 확인하고, 안 되면 Blaze로 올려 기본 버킷을 만든다 (새 버킷 이름 형식: `PROJECT_ID.firebasestorage.app`).
 5. **프로젝트 설정** → 서비스 계정 → Python용 Admin SDK → **새 비공개 키 생성**
-   - 다운로드된 JSON 파일명: `firebase-adminsdk-*.json`
-   - `.gitignore`에 포함되어 있으므로 절대 커밋하지 않음
+   - 다운로드된 JSON 파일명은 보통 `프로젝트ID-firebase-adminsdk-….json` 형태이며 `.gitignore`의 `*firebase-adminsdk*.json`에 걸린다
+   - 절대 커밋하지 않음 (전달 규칙은 §10.6)
+6. **프로젝트 설정 → 일반 → 웹 API 키**를 복사해 `.env`의 `FIREBASE_WEB_API_KEY`에 넣는다 (로그인 REST 호출에 필요, §10.5). 저장소에는 올리지 않고 `.env`에만 둔다.
 
 ### 10.2 역할별 테스트 계정 생성 (A가 Firebase Console에서 직접 생성)
 
@@ -584,23 +679,28 @@ sample_data/*.jpg
 `.env.example` (커밋 가능):
 ```
 FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
-FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-adminsdk-*.json
+FIREBASE_WEB_API_KEY=your-web-api-key
+FIREBASE_SERVICE_ACCOUNT_PATH=./path-to-your-service-account.json
+STORAGE_BACKEND=local            # local | firebase
+STORAGE_DIR=./data               # local 모드 저장 폴더 (JCloud에서는 영구 저장 경로)
+FIREBASE_STORAGE_BUCKET=         # STORAGE_BACKEND=firebase일 때만 (형식: PROJECT_ID.firebasestorage.app)
 APP_ENV=development
 ```
 
 `.env` (커밋 금지, `.gitignore` 포함):
 ```
 FIREBASE_PROJECT_ID=pacs-quality-check
-FIREBASE_STORAGE_BUCKET=pacs-quality-check.appspot.com
-FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-adminsdk-xxxxx.json
+FIREBASE_WEB_API_KEY=(콘솔에서 복사한 값)
+FIREBASE_SERVICE_ACCOUNT_PATH=./pacs-quality-check-firebase-adminsdk-xxxxx.json
+STORAGE_BACKEND=local
+STORAGE_DIR=./data
 APP_ENV=development
 ```
 
 ### 10.4 Storage 접근 경로 확정
 
 ```
-Firebase Storage 버킷 구조:
+저장 경로 구조 (로컬 폴더·Firebase 버킷 공통):
 ├── originals/
 │   └── {case_id}/
 │       └── {image_id}.png        # 원본 (절대 덮어쓰지 않음)
@@ -609,25 +709,41 @@ Firebase Storage 버킷 구조:
         └── {run_id}.png          # 처리 결과
 ```
 
-**Storage 접근 코드 패턴 (A가 `services/storage.py`에 구현):**
+**저장소 인터페이스 (A가 `services/storage.py`에 구현 — 인터페이스는 고정, 구현은 `STORAGE_BACKEND`로 선택):**
 ```python
-from firebase_admin import storage
-
 def upload_image(path: str, image_bytes: bytes, content_type: str = "image/png") -> str:
-    bucket = storage.bucket()
-    blob = bucket.blob(path)
-    blob.upload_from_string(image_bytes, content_type=content_type)
-    return path  # Firestore에 저장할 경로 반환
+    """저장 후 path를 반환한다 (Firestore에는 이 path만 저장). 이미 있는 path면 덮어쓰지 않고 StorageError."""
 
-def download_image(path: str) -> bytes:
-    bucket = storage.bucket()
-    blob = bucket.blob(path)
-    return blob.download_as_bytes()
+def download_image(path: str) -> bytes: ...
+
+def delete_image(path: str) -> None:
+    """고아 파일 정리용 (§4). 없는 파일이면 조용히 넘어간다."""
 ```
+
+- `local`: `STORAGE_DIR/path`에 파일로 저장한다. `path`에 `..`나 절대 경로가 있으면 `ValidationError` (경로 이탈 방지). 폴더는 저장소 밖이거나 `.gitignore`의 `data/`로 둔다.
+- `firebase`: `firebase_admin.storage.bucket().blob(path)`로 올리고 내려받는다 (Blaze 요금제 필요).
+- B/C/D는 개발 모드에서 `local`을 쓰므로 Firebase 없이 작업한다.
+
+### 10.5 로그인 구현 방식
+
+1. 사용자가 이메일·비밀번호를 입력하면 Streamlit 서버가 Firebase Auth REST API를 호출한다 (`requests` 사용):
+   `POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_WEB_API_KEY}`
+   본문: `{"email": ..., "password": ..., "returnSecureToken": true}`
+2. 응답의 `idToken`을 Admin SDK `auth.verify_id_token()`으로 검증해 `uid`를 얻는다.
+3. Firestore `users/{uid}`에서 `role`, `active`를 읽는다 (`get_user_role`). 없거나 비활성이면 `PermissionDeniedError`.
+4. `uid`·`role`은 `st.session_state["auth_*"]`에만 둔다. 이후 모든 서비스 함수는 이 검증된 `uid`로 권한을 검사한다.
+5. 로그인 실패 메시지는 "이메일 또는 비밀번호가 올바르지 않습니다"처럼 원인을 구분하지 않는다. 비밀번호·토큰은 로그에 남기지 않는다.
+
+### 10.6 서비스 계정 키·테스트 데이터 규칙
+
+- 서비스 계정 키(JSON)는 A가 필요한 팀원에게 **개인 DM 같은 비공개 경로로만** 전달한다. 저장소·이슈·PR·공개 채팅에 올리지 않는다.
+- B/C/D는 개발 모드(§7.1)에서는 키가 필요 없다. Firestore를 직접 확인해야 하는 작업(D의 `transition_case` 연결 등)에서만 받는다.
+- 키가 유출되면 즉시 팀에 알리고 Firebase 콘솔에서 키를 폐기·재발급한다 (`docs/GIT_RULES.md` §9).
+- 같은 Firebase 프로젝트를 함께 쓰므로, 개발 중 테스트 케이스의 `case_label`에는 `DEV-<이름>-` 접두사를 붙여 서로 섞이지 않게 한다.
 
 ---
 
-## 11. JCloud 배포 가이드 (A 담당, Day 5~)
+## 11. JCloud 배포 가이드 (A 담당, 첫 시험 배포는 중간 점검 #1 직후)
 
 ### 11.1 배포 준비
 
@@ -635,29 +751,32 @@ def download_image(path: str) -> bytes:
 # Streamlit 앱 로컬 실행 확인
 streamlit run app.py
 
-# 의존성 최신화
-pip freeze > requirements.txt
+# 의존성 변경은 requirements.txt를 직접 수정하는 PR로만 한다 (pip freeze로 덮어쓰지 않는다 — §12)
 ```
 
 ### 11.2 JCloud 배포 절차
 
 > JCloud 접속 주소와 계정 정보는 과제 지시서 또는 교수님 안내에 따름.
+>
+> **저장 위치 확정 (배포 담당 A):** 먼저 JCloud 영구 저장 공간이 재배포·재시작 후에도 파일을 유지하는지 시험 파일로 확인한다. 유지되면 `STORAGE_BACKEND=local` + `STORAGE_DIR`(영구 저장 경로)로 가고, 안 되면 Firebase를 Blaze로 올려 `STORAGE_BACKEND=firebase`로 간다 (인터페이스가 같아 코드는 바뀌지 않는다). **첫 시험 배포는 1차 통합 회의 직후**에 한 번 해 본다.
 
 1. JCloud 대시보드 로그인
 2. 새 앱 생성 → Python/Streamlit 선택
 3. GitHub 저장소 연결 (main 브랜치)
 4. 환경변수 설정 (`.env` 내용을 JCloud 비밀 환경변수로 등록)
    - `FIREBASE_PROJECT_ID`
-   - `FIREBASE_STORAGE_BUCKET`
+   - `FIREBASE_WEB_API_KEY`
+   - `STORAGE_BACKEND`, `STORAGE_DIR` (firebase 모드면 `FIREBASE_STORAGE_BUCKET`)
    - `FIREBASE_SERVICE_ACCOUNT_JSON` (JSON 내용을 문자열로)
+   - **`APP_ENV=production`** (개발 모드 로그인 우회가 꺼지는지 반드시 확인 — §7.1)
 5. 배포 실행 → 접속 URL 확인
-6. 역할별 테스트 계정으로 전체 시나리오 재실행
+6. 역할별 테스트 계정으로 전체 시나리오 재실행 (개발 모드 우회로 로그인되지 않는지도 확인)
 
 ### 11.3 배포 환경에서 서비스 계정 처리
 
 JCloud에서는 파일 경로 대신 **환경변수로 JSON 내용** 전달:
 ```python
-# src/services/auth.py
+# src/services/firebase_client.py
 import json, os
 import firebase_admin
 from firebase_admin import credentials
@@ -670,9 +789,10 @@ def init_firebase():
         else:
             path = os.environ.get("FIREBASE_SERVICE_ACCOUNT_PATH")
             cred = credentials.Certificate(path)
-        firebase_admin.initialize_app(cred, {
-            "storageBucket": os.environ["FIREBASE_STORAGE_BUCKET"]
-        })
+        options = {}
+        if os.environ.get("FIREBASE_STORAGE_BUCKET"):  # firebase 저장소 모드일 때만
+            options["storageBucket"] = os.environ["FIREBASE_STORAGE_BUCKET"]
+        firebase_admin.initialize_app(cred, options)
 ```
 
 ---
@@ -687,6 +807,7 @@ opencv-python-headless==4.9.0.80
 numpy==1.26.4
 Pillow==10.2.0
 python-dotenv==1.0.1
+requests==2.31.0
 pytest==8.1.0
 ```
 
@@ -699,10 +820,10 @@ pytest==8.1.0
 
 | 시점 | A | B | C | D | 전체 통합 체크 |
 |---|---|---|---|---|---|
-| **Day 0** | 환경/Firebase 초기 설정/더미 함수 생성 | CLAHE/ROI 함수 계약 확인 | 점검 결과 dict 확정 + 샘플 생성 | 전이 표 확정 | `docs/TEAM_CONTRACT.md` 합의, 임포트 확인 |
+| **Day 0** | 환경/더미 함수/공통 테마/`app.py` 탭 뼈대/개발 모드 → 이후 Firebase 초기 설정 | CLAHE/ROI 함수 계약 확인 | 점검 결과 dict 확정 + 샘플 생성 | 전이 표 확정 | `docs/TEAM_CONTRACT.md` 합의, 임포트 확인 |
 | **Day 1~2** | `save_case/load_image/load_case` 구현 | CLAHE + ROI 테스트 | Gaussian + `check_quality` 테스트 | Median + 전이/메모 테스트 | **모든 함수 단독 테스트 통과** |
-| **Day 3~4** | 저장/조회 화면 + Auth/Firestore | 뷰어·비교·ROI 화면 | 자동 점검 연결/API 지원 | 검토 화면·이력 | **등록→자동 점검→검토 흐름 1회** |
-| **Day 5~** | Storage 영구성/JCloud 배포 | ROI 비교/UX 개선 | 임계값 실험·오탐/미탐 검증 | 재검토 후속 이력/리포트 | 특화 기능 시간·단계 비교 실험 + 배포 검증 |
+| **Day 3~4** | 로그인·목록·등록 화면 + Auth/Firestore | 뷰어·비교·ROI 탭 | 자동 점검 탭 | 검토·이력 탭 | **등록→자동 점검→검토 흐름 1회** |
+| **Day 5~** | 저장소 영구성 확인(시험 배포)/JCloud 배포 | ROI 비교/UX 개선 | 임계값 실험·오탐/미탐 검증 | 재검토 후속 이력/리포트 | 특화 기능 시간·단계 비교 실험 + 배포 검증 |
 
 ### 초기 통합용 최소 코드 호출 예시
 
@@ -739,7 +860,7 @@ run_id = save_processing_run(image_id, "clahe", {"clip_limit": 2.0,
 
 ---
 
-## 15. 첫 회의에서 최종 체크 (이 15개 확인 후 개발 시작)
+## 15. 첫 회의에서 최종 체크 (확인 후 개발 시작)
 
 - [x] 팀원 A/B/C/D 실제 이름과 GitHub 계정 정함 (`docs/GIT_RULES.md` §1)
 - [x] Repo 이름 및 Collaborator 초대 완료
@@ -748,7 +869,7 @@ run_id = save_processing_run(image_id, "clahe", {"clip_limit": 2.0,
 - [ ] Firebase 프로젝트 생성 완료 (§10.1)
 - [ ] Firebase Authentication 로그인 방식(이메일/비밀번호) 설정 완료
 - [ ] 역할별 테스트 계정 3개 생성 완료 (§10.2)
-- [ ] Firebase Storage 버킷 생성 완료 (§10.4)
+- [ ] 영상 저장 방식 확인: 로컬 폴더로 개발을 시작하고, 배포 저장소는 배포 전 확정 (§0, §11.2)
 - [ ] `.env` 파일 각자 로컬 설정 완료 (`.gitignore` 확인)
 - [ ] `case_id/image_id/roi/gray` 형식 확인 (§3)
 - [ ] 함수 시그니처와 예외 규칙 확인 (§4)
@@ -757,17 +878,28 @@ run_id = save_processing_run(image_id, "clahe", {"clip_limit": 2.0,
 - [ ] 샘플 이미지 생성 담당 C, Day 0까지 (§8.1)
 - [ ] JCloud 배포 담당 A, 첫 통합 날짜 정함 (§11)
 
+### 팀원 시작 전 A 선행 작업
+
+B/C/D가 막힘 없이 시작하려면 아래가 `main`에 병합되어 있어야 한다. 이 작업도 이슈 → 브랜치 → PR → 1명 Approve 절차를 따른다 (`docs/GIT_RULES.md`).
+
+- [ ] 폴더 구조 + 함수 stub(§4 시그니처), `errors.py`, `quality/thresholds.py`(`DEFAULT_THRESHOLDS`), `config.py`, 빈 `__init__.py`
+- [ ] `requirements.txt`(§12), `.env.example`(§10.3), 루트 `conftest.py`, 최소 테스트 1개 (`python -m pytest`가 오류 없이 끝남), `README.md` 뼈대(설치·실행·테스트·개발 모드)
+- [ ] 공통 테마(`.streamlit/config.toml`, `ui/style.py`)와 `app.py` 탭 뼈대 (각 탭이 `ui/*.py`의 `render()` 호출)
+- [ ] 개발 모드(§7.1): Firebase 없이 `streamlit run app.py`로 각 탭이 뜸
+
+Firebase 설정(§10)과 JCloud 배포(§11)는 A가 이후 진행하며 팀원 시작을 막지 않는다.
+
 ### 리뷰
 
-코드 PR은 나를 뺀 팀원 전원을 리뷰어로 지정하고, 아무나 1명이 Approve + 코멘트 1줄이면 머지한다. 오타·작은 문서 수정 PR은 리뷰 없이 본인이 머지한다 (`docs/GIT_RULES.md` §5).
+코드 PR은 나를 뺀 팀원 전원을 리뷰어로 지정하고, 아무나 1명이 Approve + 코멘트 1줄이면 머지한다. 계약·규칙 변경 PR은 영향받는 팀원 전원 Approve가 필요하다. 오타·작은 문서 수정 PR은 리뷰 없이 본인이 머지한다 (`docs/GIT_RULES.md` §5).
 
 ### 최종 담당-제공물 표
 
-| 담당 | 외부에 제공할 필수 API | 코드/시험 증거 |
-|---|---|---|
-| **A** 이아림 | `save_case`, `load_case`, `load_image`, `search_cases`, `save_processing_run`, `save_quality_check` + **전체 UI (`app.py`, `ui/*.py`)** | `src/services/*`, `ui/*.py`, `test_cases.py`, 배포·권한 점검 |
-| **B** 김지빈 | `apply_clahe`, `get_roi_stats` (함수만) | `clahe.py`, `roi.py`, 단위 테스트 결과 |
-| **C** 박철우 | `apply_gaussian`, `check_quality` (함수만) + 샘플 이미지 생성 | `gaussian.py`, `checker.py`, 점검 실험표/한계 |
-| **D** 이지우 | `apply_median`, `transition_case`, `assign_case`, `add_review_note` (함수만) | `median.py`, `workflow.py`, 상태전이/이력 테스트 |
+| 담당 | 외부에 제공할 필수 API | 담당 UI | 코드/시험 증거 |
+|---|---|---|---|
+| **A** 이아림 | `save_case`, `load_case`, `load_image`, `search_cases`, `save_processing_run`, `get_processing_runs`, `save_quality_check`, `login`, `get_user_role`, `get_db` | `app.py`, `ui/style.py`, 로그인·케이스 목록·영상 등록 화면 | `src/services/*`, `test_cases.py`, 배포·권한 점검 |
+| **B** 김지빈 | `apply_clahe`, `get_roi_stats` | `ui/viewer.py` (뷰어·ROI 탭) | `clahe.py`, `roi.py`, 단위 테스트 결과 |
+| **C** 박철우 | `apply_gaussian`, `check_quality` + 샘플 이미지 생성 | `ui/quality_panel.py` (자동 점검 탭) | `gaussian.py`, `checker.py`, 점검 실험표/한계 |
+| **D** 이지우 | `apply_median`, `check_transition`, `transition_case`, `assign_case`, `add_review_note`, `get_case_history` | `ui/workflow_panel.py` (검토·이력 탭) | `median.py`, `workflow.py`, 상태전이/이력 테스트 |
 
-**계약 변경 규칙:** 새 함수/필드/상태/권한/임계값 버전을 바꾸는 PR은 **문서 → 테스트 → 구현 → 리뷰** 순서로 진행한다.
+**계약 변경 규칙:** 새 함수/필드/상태/권한/임계값 버전/파일 소유권을 바꾸는 PR은 **문서 → 테스트 → 구현 → 리뷰** 순서로 진행한다.
