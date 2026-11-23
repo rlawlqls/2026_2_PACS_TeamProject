@@ -1,0 +1,9 @@
+# requirements.txt — 버전 변경 시 전원 합의 필요
+streamlit==1.32.0
+firebase-admin==6.4.0
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+Pillow==10.2.0
+python-dotenv==1.0.1
+requests==2.31.0
+pytest==8.1.0
