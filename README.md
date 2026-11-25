@@ -18,4 +18,13 @@ TODO: `python -m pytest -q` 실행 방법과 결과 확인
 
 ## 개발 모드
 
-TODO: `APP_ENV=development`로 Firebase 없이 화면 확인하는 방법 (TEAM_CONTRACT §7.1)
+Firebase 없이 화면을 확인할 때 쓴다 (TEAM_CONTRACT §7.1).
+
+```bash
+APP_ENV=development streamlit run app.py
+```
+
+- 로그인 없이 가상 관리자(admin)로 들어가고, `make_samples()`로 만든 샘플 영상이 개발용 케이스로 보인다.
+- `APP_ENV`가 없거나 `development`가 아니면 개발 모드는 꺼진다. **배포 환경에서는 반드시 `production`.**
+
+TODO: Windows PowerShell 실행 방법, `.env`로 설정하는 방법
