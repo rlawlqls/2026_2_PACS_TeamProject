@@ -270,3 +270,95 @@ def test_load_case_and_image_not_found(env):
         cases.load_case("case_does_not_exist")
     with pytest.raises(NotFoundError):
         cases.load_image("img_does_not_exist")
+
+
+# =============================================================================
+# save_quality_check (C의 check_quality 결과 저장, §4)
+# =============================================================================
+
+def _qc_result(**override):
+    result = {
+        "status": "needs_check",
+        "metrics": {"brightness_mean": np.float64(42.8), "contrast_std": 29.4, "laplacian_variance": 50.2},
+        "reasons": ["too_dark", "low_contrast", "possibly_blurry"],
+        "thresholds": {"brightness_min": 50.0, "brightness_max": 205.0, "contrast_std_min": 35.0,
+                       "laplacian_var_min": 80.0, "version": "demo-v1"},
+        "checker_version": "1.0.0",
+    }
+    result.update(override)
+    return result
+
+
+PASS_RESULT = {"status": "pass", "reasons": []}
+
+
+# --- 정상 ---------------------------------------------------------------------
+
+def test_save_quality_check_stores_and_updates_case(env, samples):
+    db, _ = env
+    case_id, image_id = save_case(_meta(), _png_bytes(samples["normal"]))
+    check_id = cases.save_quality_check(image_id, _qc_result())
+
+    assert check_id.startswith("qc_")
+    saved = db.data["quality_checks"][check_id]
+    assert saved["case_id"] == case_id and saved["image_id"] == image_id
+    assert saved["reasons"] == ["too_dark", "low_contrast", "possibly_blurry"]
+    assert type(saved["metrics"]["brightness_mean"]) is float  # numpy 숫자 → float
+    assert saved["actor_uid"] is None  # 등록 직후 자동 점검
+    case = cases.load_case(case_id)
+    assert case["latest_check_id"] == check_id and case["latest_quality_status"] == "needs_check"
+    assert case["status"] == "registered"  # 업무 상태는 건드리지 않는다 (§5)
+
+
+def test_latest_check_is_replaced_by_new_check(env, samples):
+    case_id, image_id = save_case(_meta(), _png_bytes(samples["normal"]))
+    cases.save_quality_check(image_id, _qc_result())
+    second = cases.save_quality_check(image_id, _qc_result(**PASS_RESULT), actor_uid=REVIEWER)
+    case = cases.load_case(case_id)
+    assert case["latest_check_id"] == second and case["latest_quality_status"] == "pass"
+
+
+def test_dev_mode_quality_check_shows_in_case_list(dev_env, monkeypatch):
+    monkeypatch.setattr(cases, "_DEV_QUALITY", {})  # 다른 테스트와 메모리를 공유하지 않게
+    image_id = search_cases()[0]["image_id"]
+    check_id = cases.save_quality_check(image_id, _qc_result(**PASS_RESULT))
+    case = search_cases()[0]
+    assert case["latest_check_id"] == check_id and case["latest_quality_status"] == "pass"
+
+
+# --- 오류 ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("override", [
+    {"status": "ok"},                                             # 모르는 status
+    {"status": "pass"},                                           # pass인데 사유 있음
+    {"reasons": []},                                              # needs_check인데 사유 없음
+    {"reasons": ["low_contrast", "too_dark"]},                    # 순서가 표준과 다름
+    {"reasons": ["too_dark", "noisy"]},                           # 모르는 사유
+    {"metrics": {"brightness_mean": 1.0, "contrast_std": 2.0}},   # 지표 누락
+    {"metrics": {"brightness_mean": "밝음", "contrast_std": 2.0, "laplacian_variance": 3.0}},
+    {"metrics": {"brightness_mean": float("nan"), "contrast_std": 2.0, "laplacian_variance": 3.0}},
+    {"thresholds": {"brightness_min": 50.0}},                     # version 없음
+    {"checker_version": ""},
+])
+def test_invalid_quality_result_is_rejected(env, samples, override):
+    db, _ = env
+    _, image_id = save_case(_meta(), _png_bytes(samples["normal"]))
+    with pytest.raises(ValidationError):
+        cases.save_quality_check(image_id, _qc_result(**override))
+    assert "quality_checks" not in db.data
+
+
+def test_quality_check_for_unknown_image_raises_not_found(env):
+    with pytest.raises(NotFoundError):
+        cases.save_quality_check("img_does_not_exist", _qc_result())
+
+
+def test_quality_save_failure_keeps_registered_case(env, samples):
+    db, root = env
+    case_id, image_id = save_case(_meta(), _png_bytes(samples["normal"]))
+    db.fail_commit = True
+    with pytest.raises(StorageError):
+        cases.save_quality_check(image_id, _qc_result())
+    db.fail_commit = False
+    assert cases.load_case(case_id)["latest_check_id"] is None  # 케이스는 그대로
+    assert (root / f"originals/{case_id}/{image_id}.png").is_file()  # 원본도 그대로
