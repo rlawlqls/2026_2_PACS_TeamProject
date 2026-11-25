@@ -1,9 +1,10 @@
-# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.1
+# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.2
 
 > **목적:** A·B·C·D가 다른 파일에서 동시에 개발해도, 마지막에 `app.py`에서 곧바로 연결되도록 **함수 계약(API), 데이터 구조, 화면·권한·업무 상태, 저장, 검증, Git 규칙**을 고정한다.  
 > **적용 대상:** 초급프로젝트 PBL 교육용 웹 PACS / 팀 4명 / Python + Streamlit + Firebase Authentication + Cloud Firestore + JCloud  
-> **문서 상태:** **v2.1 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 킥오프 이슈에 동의 댓글을 남긴다.**  
+> **문서 상태:** **v2.2 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 킥오프 이슈에 동의 댓글을 남긴다.**  
 > **Git 규칙:** 브랜치·커밋·이슈·PR·리뷰 규칙은 [`docs/GIT_RULES.md`](GIT_RULES.md)가 최상위 규칙이다. 이 문서와 다르면 GIT_RULES를 따른다.  
+> **v2.2 변경 요약:** (1) **DICOM 지원 추가** — 교수님 지시. `.dcm` 업로드·태그 자동 추출·원본 보관까지, 뷰어 Window/Level과 3D는 범위 밖 (§0, §3.1, §3.2, §3.3, §3.5, §5, §7). (2) `src/dicom_io.py` 신설, 담당 **C** (§2, §4, §15). `sample_data/download_lidc.py`로 LIDC-IDRI 샘플 확보 (§3.4, §8.1). (3) 업로드 제한 10MB → **25MB** (§0, §3.1). (4) `pydicom`·`pyarrow` 추가, **항목 추가는 이슈 / 버전 변경은 전원 합의**로 완화 (§12). (5) 임계값 수치를 계약서에서 빼고 `quality/thresholds.py`를 단일 출처로 (§4). 샘플 생성 방식은 C 재량 (§3.4). **§3.1 공통 이미지 규격과 §4 함수 시그니처는 바뀌지 않았다 — B·D는 영향이 없다.**  
 > **v2.1 변경 요약:** (1) UI 소유권 — A는 `app.py`·공통 테마(`ui/style.py`)·로그인/목록/등록 화면, B/C/D는 자기 함수 + 자기 탭 파일 (§0, §1, §2, §7, §15). (2) 개발 모드 추가 (§7.1). (3) 팀원 시작 전 A 선행 작업 정리 (§15). (4) 영상 저장 방식(로컬 폴더로 개발, 배포 저장소는 배포 전 확정)·로그인 방식·서비스 계정 키 전달 규칙 (§0, §10, §11). (5) 테스트 방식 — 샘플은 코드로 생성, 테스트 파일을 담당별로 분리, 상태전이 순수 함수 `check_transition` (§2, §3.4, §4, §8). (6) 비교 실험·특화 기능 검증 기록 (§8.5). (7) 임계값 파일을 C 소유로 분리, `.gitignore`의 서비스 계정 키 패턴 수정.
 
 ---
@@ -15,8 +16,8 @@
 | 백엔드/화면 | Python 3.11 + Streamlit 1.32 단일 앱 | 안정 버전, Firebase SDK 호환 |
 | 인증/DB/배포 | Firebase Authentication / Cloud Firestore / JCloud `[과제 필수]` | 변경 불가 |
 | 로그인 방식 | Streamlit 서버가 Firebase Auth REST API(`accounts:signInWithPassword`, 웹 API 키)로 이메일·비밀번호 로그인 → 받은 ID token을 Admin SDK로 검증 → Firestore `users/{uid}`에서 역할 조회 (§10.5) | Admin SDK만으로는 비밀번호 로그인을 할 수 없음 |
-| 실제 영상 저장 | **`services/storage.py` 인터페이스**(§10.4) 뒤에 저장한다. 개발은 로컬 폴더(`STORAGE_DIR`), 배포 저장소는 배포 담당(A)이 배포 전에 **JCloud 영구 저장 공간 또는 Firebase Storage** 중 확정한다. 경로 규칙: 원본 `originals/{case_id}/{image_id}.png`, 처리 결과 `processed/{case_id}/{run_id}.png` | 안내문은 두 방식을 모두 허용한다. Firebase Storage는 Blaze 요금제(결제 카드 등록)가 필요하므로 JCloud 영구 저장을 먼저 확인한다 |
-| 영상 입력 | PNG/JPG/JPEG, **8-bit grayscale `np.ndarray`** (H,W) uint8; 10MB 이하; DICOM 범위 밖 (보고서에 지원 형식과 함께 명시) `[팀 합의안]` | 확정 |
+| 실제 영상 저장 | **`services/storage.py` 인터페이스**(§10.4) 뒤에 저장한다. 개발은 로컬 폴더(`STORAGE_DIR`), 배포 저장소는 배포 담당(A)이 배포 전에 **JCloud 영구 저장 공간 또는 Firebase Storage** 중 확정한다. 경로 규칙은 §3.2·`src/models.py` 헬퍼: 원본 `originals/{case_id}/{image_id}.dcm`(또는 `.png`), 표시용 `display/{case_id}/{image_id}.png`, 처리 결과 `processed/{case_id}/{run_id}.png` | 안내문은 두 방식을 모두 허용한다. Firebase Storage는 Blaze 요금제(결제 카드 등록)가 필요하므로 JCloud 영구 저장을 먼저 확인한다 |
+| 영상 입력 | **DICOM(`.dcm`) 우선** + PNG/JPG/JPEG 허용, **25MB 이하**. 팀원 함수에 전달하는 배열은 **8-bit grayscale `np.ndarray` (H,W) uint8** 유지 (§3.1). 지원 형식과 DICOM 범위는 보고서에 명시 `[팀 합의안]` | 교수님 지시로 DICOM 지원 추가. 범위는 §3.5 |
 | 원본 보관 | 원본 파일 절대 덮어쓰기 금지 `[과제 필수]` | 변경 불가 |
 | 필수 영상처리 3종 | B: CLAHE / C: Gaussian / D: Median `[팀 합의안]` | 확정 |
 | 화질 특화 기능 | C가 밝기·대비·흐림 점수 계산, A 등록 시 실행, C의 자동 점검 탭에서 결과 표시, D 재검토로 연결 | 확정 |
@@ -95,7 +96,8 @@
 │   └── assets/                 # 보고서용 다이어그램/안전한 샘플
 ├── src/
 │   ├── __init__.py             # A: 각 하위 폴더에도 빈 __init__.py를 둔다 (import 오류 방지)
-│   ├── models.py               # A 작성, 전원 리뷰: TypedDict/데이터 모델
+│   ├── models.py               # A 작성, 전원 리뷰: TypedDict/데이터 모델·Storage 경로 헬퍼
+│   ├── dicom_io.py             # C: DICOM 판별·태그 추출·표시용 변환 (§3.1·§3.5)
 │   ├── config.py               # A: 설정 (DEFAULT_THRESHOLDS는 quality/thresholds.py에서 import해 노출)
 │   ├── errors.py               # A: 공통 예외
 │   ├── services/
@@ -133,7 +135,8 @@
 │   └── test_integration.py     # A 총괄, 전원 참여
 └── sample_data/
     ├── README.md               # 공개·가상 영상 출처/라이선스; 민감정보 금지
-    ├── generate_samples.py     # C: 샘플 생성 스크립트 (생성물 PNG는 커밋 안 함 — §9.2)
+    ├── generate_samples.py     # C: 합성 샘플 생성 (생성물 PNG는 커밋 안 함 — §9.2)
+    ├── download_lidc.py        # C: LIDC-IDRI DICOM 샘플 다운로드 (§3.4)
     ├── normal.png
     ├── dark.png
     ├── bright.png
@@ -169,7 +172,8 @@ import numpy as np
 
 - 함수의 결과 영상도 **입력과 같은 `(H,W), uint8`**, 특별히 다른 출력 형식을 정의한 경우에만 예외.
 - 원본 배열 수정 금지: `out = gray.copy()` 또는 OpenCV가 새 배열을 반환하도록 구현.
-- 영상 업로드 제한: **10 MB 이하**, 확장자와 실제 디코딩 결과 동시 검사; 잘못된 파일이면 명확한 오류.
+- 영상 업로드 제한: **25 MB 이하** (DICOM 한 검사가 약 16MB), 확장자와 실제 디코딩 결과 동시 검사; 잘못된 파일이면 명확한 오류. 허용 확장자: `.dcm` `.png` `.jpg` `.jpeg`.
+- **DICOM 입력:** `.dcm`은 `src/dicom_io.py`가 입구에서 위 규격(`uint8 (H,W)`)으로 바꾼다. 변환은 픽셀값의 **1~99 백분위 구간을 0~255로 펼치는 방식**이고, 파일에 적힌 `WindowCenter`/`WindowWidth`는 **쓰지 않는다** (공개 데이터에 잘못된 값이 들어 있어 화면이 흰색으로 포화된다 — `sample_data/README.md` 참고). 따라서 **B·C·D 함수는 입력이 DICOM인지 PNG인지 알 필요가 없다.**
 - **이미지 방향:** Python/OpenCV 배열의 좌표 원점은 **왼쪽 위 `(x=0,y=0)`**, `x`는 오른쪽, `y`는 아래쪽. Streamlit UI 좌표를 원본 해상도로 역변환해 ROI에 전달.
 - 히스토그램은 **256개 bin**으로 고정, 결과가 JSON/Firestore에 저장될 때는 `list[int]`로 바꾼다.
 - `np.ndarray`와 바이너리는 **Firestore에 직접 저장하지 않음**.
@@ -186,7 +190,7 @@ import numpy as np
 | `event_id` | `str` | `"evt_" + uuid.uuid4().hex` | `evt_f20d...` |
 | `uid` | `str` | Firebase UID (검증된 세션에서) | Firebase 자동 생성 |
 | `created_at`, `updated_at` | Firestore SERVER_TIMESTAMP (UTC) | `firestore.SERVER_TIMESTAMP` | 자동 |
-| 경로 | `str` | `originals/{case_id}/{image_id}.png` | 이미지 파일은 영상 저장소, 경로는 Firestore |
+| 경로 | `str` | `originals/{case_id}/{image_id}.dcm` · `display/{case_id}/{image_id}.png` | `src/models.py`의 경로 헬퍼를 쓴다. 파일은 영상 저장소, 경로는 Firestore |
 | `schema_version` | `int` | 상수 `1` | `1` |
 
 **UUID 생성 표준 코드:**
@@ -207,22 +211,42 @@ check_id = new_id("qc_")     # "qc_a94e7b..."
 
 ```python
 metadata = {
-    "case_label": "DEMO-001",          # 화면용 모의 케이스 ID, 필수
+    "case_label": "LIDC-IDRI-0001",   # 화면용 모의 케이스 ID, 필수
     "exam_type": "X-ray",             # X-ray / CT / MRI / Other (시연용 분류)
-    "description": "모의 흉부 영상",     # 선택, 없으면 ""
+    "description": "CHEST",           # 선택, 없으면 ""
     "registered_by": "firebase-uid",  # 로그인 사용자 UID, 서버에서 검증
 }
 ```
 
+- **DICOM 업로드 시 `dicom_io.read_tags()`가 위 값을 자동으로 채운다.** `PatientID` → `case_label`, `Modality` → `exam_type`, `SeriesDescription` 또는 `BodyPartExamined` → `description`. 사용자는 등록 화면에서 고칠 수 있다. 매핑: `DX`·`CR` → `X-ray`, `CT` → `CT`, `MR` → `MRI`, 그 외 → `Other`.
+- 비식별 공개 데이터는 환자 이름·성별·나이가 **빈 값**이고 촬영 방향 태그는 **아예 없다.** 없는 값은 빈 문자열로 두고 화면에서 처리한다. 검사일(`StudyDate`)도 비식별용 고정값이므로 등록일은 업로드 시각으로 따로 생성한다.
 - 환자 실명·주민번호 등 **실제 개인정보는 금지**. `case_label`은 화면 표시용이며 고유한 DB 키가 아님.
 - 파일명·길이·크기·등록시각은 클라이언트를 신뢰하지 않고 A가 실제 파일에서 생성·검증한다.
-- `image_bytes`에는 **PNG/JPEG 파일 자체의 bytes**를 넘김. `np.ndarray.tobytes()`와 혼동하지 않는다.
+- `image_bytes`에는 **업로드된 파일 자체의 bytes**(`.dcm`·PNG·JPEG)를 넘김. `np.ndarray.tobytes()`와 혼동하지 않는다.
 
-### 3.4 테스트용 샘플 영상 — 파일이 아니라 코드로 만든다
+### 3.4 테스트용 샘플 영상 — 커밋하지 않고 각자 만든다
 
 - 샘플 PNG는 커밋하지 않으므로(§9.2), 테스트가 PNG 파일을 읽으면 새로 clone한 팀원은 전부 실패한다.
 - C가 `sample_data/generate_samples.py`에 `make_samples(seed=0) -> dict[str, np.ndarray]`를 만들고, 루트 `conftest.py`의 fixture가 이 함수를 호출한다. 파일 저장 기능(`python sample_data/generate_samples.py`)은 시연·개발 모드 화면 확인용이다.
 - 난수는 `seed`를 고정해 같은 영상이 재현되게 한다.
+- **DICOM 샘플:** 합성 영상으로는 태그 추출과 16비트 변환을 검증할 수 없다. `python sample_data/download_lidc.py`로 LIDC-IDRI 흉부 X-ray 10케이스를 `dicom_data/`에 받는다 (`.gitignore` 처리). 출처·라이선스·태그 특성은 `sample_data/README.md`에 정리돼 있다.
+- 생성·다운로드 **방식의 세부는 C 재량**이다. 위 두 진입점(`make_samples()`, `download_lidc.py`)만 유지하면 계약 변경 없이 바꿀 수 있다.
+
+### 3.5 DICOM 지원 범위 `[팀 합의안]`
+
+과제 안내문은 DICOM 범위를 **보고서에 명시**하도록 요구한다 (01·04쪽). 이번 학기 범위는 아래와 같다.
+
+| | 내용 |
+|---|---|
+| ✅ 구현 | `.dcm` 업로드, 태그 자동 추출로 등록 폼 입력, **원본 `.dcm` 보관**, 표시용 변환 |
+| ❌ 범위 밖 | 뷰어 밝기·대비 조절(Window/Level), 3D·MPR, DICOM 네트워크 통신(C-STORE 등), 적합성 선언서 |
+
+**원본을 PNG로 대체하지 않는다.** 저장소에는 `.dcm` 원본이 남고, 표시용 PNG는 원본에서 다시
+만들 수 있는 파생물이다. 화면에 띄우려면 8-bit 변환을 거쳐야 하므로(모니터 한계) 변환 자체는
+모든 뷰어가 하는 일이며, 여기서 금지하는 것은 *원본을 버리고 PNG만 남기는 것*이다.
+
+범위 밖 항목은 필수 구성이 아니므로, 개발이 끝난 뒤 여유가 생기면 추가한다
+(`docs/DEV_PLAN.md`의 🟢 여유 작업). 원본을 보관하므로 나중에 붙여도 구조는 바뀌지 않는다.
 
 ---
 
@@ -331,18 +355,43 @@ def check_quality(gray: np.ndarray, thresholds: dict) -> dict:
     """
 ```
 
-#### `thresholds` 표준 (임시 기본값; 실제 샘플 확인 후 보정)
+#### DICOM 읽기·변환 (`src/dicom_io.py`)
+
+이 파일만 DICOM 형식을 안다. 다른 모듈은 여기서 나온 `uint8` 배열만 쓴다 (§3.1·§3.5).
 
 ```python
-# src/quality/thresholds.py에 DEFAULT_THRESHOLDS로 정의 (C 소유. src/config.py는 이를 import해서 노출)
-DEFAULT_THRESHOLDS = {
-    "brightness_min": 50.0,       # mean < 50 → too_dark
-    "brightness_max": 205.0,      # mean > 205 → too_bright
-    "contrast_std_min": 35.0,     # std < 35 → low_contrast
-    "laplacian_var_min": 80.0,    # Laplacian variance < 80 → possibly_blurry
-    "version": "demo-v1",
-}
+def is_dicom(data: bytes) -> bool:
+    """data가 DICOM이면 True. 어떤 입력에도 예외를 내지 않는다.
+    판별 기준: 128바이트 preamble 뒤의 'DICM' 매직 바이트.
+    """
+
+def read_tags(data: bytes) -> dict:
+    """§3.3의 metadata dict를 반환하고, 'dicom' 키에 modality/body_part/
+    manufacturer/rows/cols/bits_stored를 담는다.
+    없는 태그와 빈 값을 모두 처리한다 (문자열은 "", 숫자는 0). 읽기 실패로
+    예외를 내지 않는다. DICOM이 아니면 ValidationError.
+    """
+
+def to_gray(data: bytes) -> np.ndarray:
+    """표시용 (H,W) uint8 grayscale 반환.
+    RescaleSlope/Intercept 적용 → 1~99 백분위를 0~255로 펼침 →
+    MONOCHROME1이면 반전. 파일의 WindowCenter/Width는 쓰지 않는다 (§3.1).
+    픽셀 데이터가 없거나 2차원이 아니면 ValidationError.
+    """
 ```
+
+#### `thresholds` 표준
+
+**수치는 `src/quality/thresholds.py`의 `DEFAULT_THRESHOLDS`가 단일 출처다** (C 소유. `src/config.py`는 import해서 노출만 한다). 아래 **키 이름과 자료형은 고정**이고, **값과 `version` 문자열은 C가 샘플로 보정하며 계약 변경 없이 바꾼다.**
+
+| 키 | 자료형 | 의미 |
+|---|---|---|
+| `brightness_min` / `brightness_max` | `float` | 평균 밝기 하한 / 상한 → `too_dark` / `too_bright` |
+| `contrast_std_min` | `float` | 표준편차 하한 → `low_contrast` |
+| `laplacian_var_min` | `float` | Laplacian 분산 하한 → `possibly_blurry` |
+| `version` | `str` | 임계값 세트 식별자. 보정할 때마다 올린다 (예: `demo-v1` → `demo-v2`) |
+
+보정 근거와 한계는 `docs/experiments/`에 기록한다 (§8.5).
 
 **구현 식:** `mean = np.mean(gray)`, `std = np.std(gray)`, `laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()`. 단위는 **8-bit grayscale 기준**.
 
@@ -441,7 +490,7 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 |---|---|---|
 | `users/{uid}` | `display_name`, `role` (`registrar`/`reviewer`/`admin`), `active`, `created_at` | A |
 | `cases/{case_id}` | `schema_version`, `case_label`, `exam_type`, `description`, `status`, `assigned_reviewer_uid`, `registered_by`, `created_at`, `updated_at`, `latest_check_id`, `latest_quality_status` | A 작성, D 상태 변경 |
-| `images/{image_id}` | `case_id`, `kind` (`original`/`processed`), `parent_image_id`, `storage_path`, `mime_type`, `width`, `height`, `byte_size`, `uploaded_by`, `created_at` | A |
+| `images/{image_id}` | `case_id`, `kind` (`original`/`processed`), `parent_image_id`, `storage_path`, `display_path`, `source_format` (`dicom`/`png`), `dicom` (modality·body_part·manufacturer·rows·cols·bits_stored), `mime_type`, `width`, `height`, `byte_size`, `uploaded_by`, `created_at` | A |
 | `processing_runs/{run_id}` | `case_id`, `source_image_id`, `result_image_id`, `algorithm`, `algorithm_version`, `params`, `roi`, `actor_uid`, `created_at` | A 저장, B/C/D 값 공급 |
 | `quality_checks/{check_id}` | `case_id`, `image_id`, `status`, `metrics`, `reasons`, `thresholds`, `checker_version`, `actor_uid`, `created_at` | C 계산, A 저장 |
 | `review_notes/{note_id}` | `case_id`, `image_id`, `run_id`, `content`, `author_uid`, `created_at` | D |
@@ -466,7 +515,8 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 
 - **`latest_quality_status`와 `status`는 서로 다른 값.** `status`는 *업무 진행 상황*, `latest_quality_status`는 *자동 화질 점검 결과*. 절대 혼용하지 않는다.
 - 컬렉션 간 참조는 문자열 ID. v1에서는 UI에서 하드 삭제 기능 제공하지 않음.
-- 원본 Storage 경로: `originals/{case_id}/{image_id}.png`; 처리 결과: `processed/{case_id}/{run_id}.png`.
+- Storage 경로는 `src/models.py`의 헬퍼로 만든다: 원본 `originals/{case_id}/{image_id}.dcm`, 표시용 `display/{case_id}/{image_id}.png`, 처리 결과 `processed/{case_id}/{run_id}.png`.
+- **표시용 이미지는 원본에서 다시 만들 수 있는 파생물이다.** 목록 화면과 자동 품질 점검이 이 파일을 기준으로 삼는다 (점검 판정이 보기 설정에 따라 흔들리지 않게 하기 위함). 원본 `.dcm`은 덮어쓰지 않는다.
 - **보안 주의:** Python Firebase Admin SDK는 Firestore Security Rules를 우회한다. Streamlit 서버 측 모든 읽기/쓰기 함수에서 확인된 로그인 사용자 UID와 DB 역할을 직접 검사해야 한다.
 
 ---
@@ -512,7 +562,7 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 |---|---|---|---|---|
 | 로그인 | **A** (`ui/login.py`) | A | `auth` | 로그인/로그아웃, 역할, 권한 오류 |
 | 케이스 목록 | **A** (`ui/case_list.py`) | A | `search_cases` | 케이스 ID, 검사 종류, 담당자, 업무 상태, 자동 점검 상태 (처리할 업무/완료된 업무를 구분하는 필터) |
-| 영상 등록 | **A** (`ui/register.py`) | A | `save_case` → `load_image` → `check_quality` → `save_quality_check` | 업로드 결과, 자동 점검 사유, 검사 실패 안내 |
+| 영상 등록 | **A** (`ui/register.py`) | A | `is_dicom` → `read_tags` → `save_case` → `load_image` → `check_quality` → `save_quality_check` | `.dcm` 태그에서 자동 입력된 값(사용자 수정 가능), 업로드 결과, 자동 점검 사유, 검사 실패 안내 |
 | 영상 뷰어 | **B** (`ui/viewer.py`) | B | `load_image`, `apply_clahe/gaussian/median`, `save_processing_run` | 원본/결과 나란히, 알고리즘 선택, 처리 설정, 확대·축소/이동/초기화 |
 | ROI 분석 | **B** (`ui/viewer.py`) | B | `get_roi_stats` | ROI 좌표·크기, 평균·분산·히스토그램 |
 | 자동 점검 결과 | **C** (`ui/quality_panel.py`) | C | `check_quality`, `save_quality_check` | 점수 3종, 적용 임계값, 경고 사유, 교육용 문구 |
@@ -552,16 +602,17 @@ B/C/D는 Firebase 키 없이 자기 탭을 띄워 볼 수 있어야 한다.
 | `gaussian_noise.png` | normal에 `np.random.normal(0, 25, shape)` 추가 | Gaussian 처리 전후 비교 |
 | `salt_pepper.png` | normal에 소금·후추 잡음 추가 | Median 처리 전후 비교 |
 | `invalid.txt` | 텍스트 파일 | 업로드 거절 |
+| `dicom_data/LIDC-IDRI-*` | `download_lidc.py` (§3.4) | DICOM 등록·태그 자동 입력·표시 변환 |
 
 **샘플 생성 스크립트:** `sample_data/generate_samples.py` — C가 작성, `sample_data/`에 저장.  
 저작권 없음(직접 생성), `sample_data/README.md`에 생성 방법·버전 기록.
-**선택:** 합성 영상만으로 검증이 약하면 공개 데이터셋 영상 1~3장을 PNG로 변환해 추가할 수 있다. 이때 `sample_data/README.md`에 출처·이용 조건·모의 케이스임을 반드시 적고, 실제 환자정보가 담긴 자료는 쓰지 않는다 (과제 안내문).
+**공개 데이터셋(LIDC-IDRI)은 DICOM 원본 그대로 사용하고 PNG로 변환해 커밋하지 않는다** (§3.5). 출처·이용 조건·모의 케이스 표시는 `sample_data/README.md`에 적는다. 실제 환자정보가 담긴 자료는 쓰지 않는다 (과제 안내문).
 
 ### 8.2 담당별 최소 단위 테스트
 
-- **A:** 정상 PNG/JPEG 업로드·재열기, 파일 깨짐/크기 초과/권한 실패, **비로그인 요청 거절**, 역할별 조회 범위(registrar/reviewer/admin), DB 저장 실패 시 고아 파일 정리, 새로고침/재시작 후 재조회.
+- **A:** 정상 `.dcm`/PNG/JPEG 업로드·재열기, 파일 깨짐/크기 초과/권한 실패, **비로그인 요청 거절**, 역할별 조회 범위(registrar/reviewer/admin), DB 저장 실패 시 고아 파일 정리, 새로고침/재시작 후 재조회.
 - **B:** CLAHE 결과 shape/dtype 유지, 입력 배열 원본 불변, ROI 평균·분산·256-bin 합계 `== pixel_count`, 경계 바깥 ROI 오류.
-- **C:** Gaussian 홀수 커널 제약, 인위적 밝기·대비·흐림 점검, 경고 사유·순서와 threshold 버전 고정, 원본 불변.
+- **C:** Gaussian 홀수 커널 제약, 인위적 밝기·대비·흐림 점검, 경고 사유·순서와 threshold 버전 고정, 원본 불변. **`dicom_io`:** 태그가 비거나 없는 파일에서 예외 없이 기본값 반환, 14비트 입력이 `uint8 (H,W)`로 변환, DICOM 아닌 bytes에 `is_dicom()`이 False.
 - **D:** Median 커널 오류, `check_transition`의 허용/금지 상태 전이 전수(§4), 배정되지 않은 reviewer 거절, 재검토 사유 없는 요청 거절, 중복 상태변경과 이력 확인.
 - **전원:** 등록→자동 점검→영상처리 저장→ROI→메모/재검토→완료→재조회 통합 시나리오, JCloud 배포 주소에서 재실행.
 
@@ -800,7 +851,7 @@ def init_firebase():
 ## 12. `requirements.txt` 버전 고정
 
 ```
-# requirements.txt — 버전 변경 시 전원 합의 필요
+# requirements.txt — 항목 추가는 이슈, 기존 항목의 버전 변경은 전원 합의
 streamlit==1.32.0
 firebase-admin==6.4.0
 opencv-python-headless==4.9.0.80
@@ -808,11 +859,17 @@ numpy==1.26.4
 Pillow==10.2.0
 python-dotenv==1.0.1
 requests==2.31.0
+pydicom==3.0.2
+pyarrow==19.0.1
 pytest==8.1.0
 ```
 
 > `opencv-python-headless` 사용 이유: JCloud 등 서버 환경에서 GUI 없이 동작.  
-> 로컬에서 `cv2` import 오류 시: `pip install opencv-python-headless==4.9.0.80`
+> 로컬에서 `cv2` import 오류 시: `pip install opencv-python-headless==4.9.0.80`  
+> `pydicom`: DICOM 읽기 (§3.1). Python 3.10 이상이 필요한데 팀은 3.11이라 문제없다.  
+> `pyarrow`: `st.dataframe`과 차트가 쓰는 Streamlit 의존성. 버전을 고정하지 않으면 표·히스토그램에서 오류가 난다.
+
+**변경 규칙:** **항목 추가**는 이슈를 만들고 진행한다 (개발 중 필요한 라이브러리까지 전원 합의를 기다리면 작업이 멈춘다). **기존 항목의 버전 변경**은 설치 환경이 전원 같아야 하므로 전원 합의 후 바꾼다.
 
 ---
 
@@ -874,7 +931,9 @@ run_id = save_processing_run(image_id, "clahe", {"clip_limit": 2.0,
 - [ ] `case_id/image_id/roi/gray` 형식 확인 (§3)
 - [ ] 함수 시그니처와 예외 규칙 확인 (§4)
 - [ ] 업무 상태전이 표 및 권한 매트릭스 확인 (§6)
-- [ ] 화질 지표/임계값 임시값 승인 및 보정 담당 C로 확정 (§4)
+- [ ] 화질 지표/임계값 키 이름 확인, 수치 보정 담당 C로 확정 (§4)
+- [ ] **DICOM 지원 범위 확인:** `.dcm` 등록·태그 자동 추출까지. 뷰어 Window/Level과 3D는 범위 밖 (§3.5)
+- [ ] **`dicom_io.py` 담당 C 확정** (§2, §4)
 - [ ] 샘플 이미지 생성 담당 C, Day 0까지 (§8.1)
 - [ ] JCloud 배포 담당 A, 첫 통합 날짜 정함 (§11)
 
@@ -899,7 +958,7 @@ Firebase 설정(§10)과 JCloud 배포(§11)는 A가 이후 진행하며 팀원 
 |---|---|---|---|
 | **A** 이아림 | `save_case`, `load_case`, `load_image`, `search_cases`, `save_processing_run`, `get_processing_runs`, `save_quality_check`, `login`, `get_user_role`, `get_db` | `app.py`, `ui/style.py`, 로그인·케이스 목록·영상 등록 화면 | `src/services/*`, `test_cases.py`, 배포·권한 점검 |
 | **B** 김지빈 | `apply_clahe`, `get_roi_stats` | `ui/viewer.py` (뷰어·ROI 탭) | `clahe.py`, `roi.py`, 단위 테스트 결과 |
-| **C** 박철우 | `apply_gaussian`, `check_quality` + 샘플 이미지 생성 | `ui/quality_panel.py` (자동 점검 탭) | `gaussian.py`, `checker.py`, 점검 실험표/한계 |
+| **C** 박철우 | `apply_gaussian`, `check_quality`, `dicom_io.is_dicom` / `read_tags` / `to_gray` + 샘플 영상 확보 | `ui/quality_panel.py` (자동 점검 탭) | `gaussian.py`, `checker.py`, `dicom_io.py`, `download_lidc.py`, 점검 실험표/한계 |
 | **D** 이지우 | `apply_median`, `check_transition`, `transition_case`, `assign_case`, `add_review_note`, `get_case_history` | `ui/workflow_panel.py` (검토·이력 탭) | `median.py`, `workflow.py`, 상태전이/이력 테스트 |
 
 **계약 변경 규칙:** 새 함수/필드/상태/권한/임계값 버전/파일 소유권을 바꾸는 PR은 **문서 → 테스트 → 구현 → 리뷰** 순서로 진행한다.

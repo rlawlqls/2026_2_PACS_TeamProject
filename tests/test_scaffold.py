@@ -11,6 +11,8 @@ import pytest
 CORE_MODULES = [
     "src.errors",
     "src.config",
+    "src.models",
+    "src.dicom_io",
     "src.quality.thresholds",
     "src.quality.checker",
     "src.services.firebase_client",

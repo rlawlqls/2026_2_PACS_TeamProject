@@ -10,7 +10,9 @@ __pycache__/
 *.log
 .DS_Store
 data/
+dicom_data/
 sample_data/*.png
 sample_data/*.jpg
+sample_data/*.dcm
 !sample_data/README.md
 
