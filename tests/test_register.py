@@ -1,7 +1,7 @@
 """영상 등록 흐름 테스트 (A 소유) — 개발 모드에서 등록 → 목록·영상 조회 → 자동 점검.
 
-C의 실제 check_quality·dicom_io와 함께 동작하는지, 그리고 점검·태그 읽기가 실패하거나
-준비되지 않았을 때(가짜 함수로 흉내)도 등록이 유지되는지 확인한다.
+C의 실제 check_quality·dicom_io와 함께 동작하는지, 그리고 점검·태그 읽기가 실패했을 때
+(가짜 함수로 흉내)도 등록이 유지되는지 확인한다.
 """
 
 import io
@@ -13,7 +13,7 @@ from PIL import Image
 from streamlit.testing.v1 import AppTest
 
 from src.config import DEV_USER
-from src.errors import PermissionDeniedError, ValidationError
+from src.errors import PermissionDeniedError, StorageError, ValidationError
 from src.services import cases
 from src.ui import register
 
@@ -36,6 +36,27 @@ def dev(monkeypatch):
     monkeypatch.setattr(cases, "_DEV_REGISTERED_CASES", [])
     monkeypatch.setattr(cases, "_DEV_REGISTERED_IMAGES", {})
     monkeypatch.setattr(cases, "_DEV_QUALITY", {})
+
+
+def _dicom(**tags) -> bytes:
+    """태그만 있는 작은 테스트용 DICOM (태그 자동 입력 확인용, 픽셀 없음)."""
+    from pydicom.dataset import Dataset, FileMetaDataset
+    from pydicom.uid import ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
+
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+    meta.MediaStorageSOPInstanceUID = generate_uid()
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    ds = Dataset()
+    ds.file_meta = meta
+    ds.SOPClassUID = meta.MediaStorageSOPClassUID
+    ds.SOPInstanceUID = meta.MediaStorageSOPInstanceUID
+    for keyword, value in {"PatientID": "LIDC-IDRI-0001", "Modality": "DX", "BodyPartExamined": "CHEST",
+                           **tags}.items():
+        setattr(ds, keyword, value)
+    buf = io.BytesIO()
+    ds.save_as(buf, enforce_file_format=True)
+    return buf.getvalue()
 
 
 def _png(gray):
@@ -71,25 +92,18 @@ def test_registration_runs_real_quality_check(dev, samples):
     assert case["latest_quality_status"] == "needs_check"
 
 
-def test_registration_kept_when_quality_check_not_ready(dev, samples, monkeypatch):
-    # 점검 함수가 준비되지 않았어도(NotImplementedError) 등록은 유지된다 (§4)
-    def not_ready(gray, thresholds):
-        raise NotImplementedError
-
-    monkeypatch.setattr(register, "check_quality", not_ready)
-    outcome = register._register_and_check(_meta(), _png(samples["normal"]))
-    assert outcome["quality"] is None and "준비되지 않아" in outcome["quality_error"]
-    case = cases.load_case(outcome["case_id"], actor_uid=DEV_USER["uid"])
-    assert case["latest_quality_status"] is None
-
-
-def test_dicom_tags_fill_form(monkeypatch):
-    tags = {"case_label": "LIDC-IDRI-0001", "exam_type": "X-ray", "description": "CHEST", "dicom": {}}
-    monkeypatch.setattr(register.dicom_io, "read_tags", lambda data: tags)
-    filled, notice = register._read_dicom_tags("scan.DCM", b"...")
+def test_dicom_tags_fill_form_by_content_not_file_name(samples):
+    # 실제 dicom_io: 파일 이름과 상관없이 내용이 DICOM이면 태그로 채운다 (C 리뷰 #49)
+    filled, notice = register._read_dicom_tags(_dicom())
     assert filled == {"case_label": "LIDC-IDRI-0001", "exam_type": "X-ray", "description": "CHEST"}
     assert "자동으로 채웠습니다" in notice
-    assert register._read_dicom_tags("photo.png", b"...") == ({}, None)  # 일반 영상은 직접 입력
+    assert register._read_dicom_tags(_png(samples["normal"])) == ({}, None)  # 일반 영상은 직접 입력
+
+
+def test_reason_labels_come_from_checker():
+    from src.quality import checker
+
+    assert register.REASON_LABELS is checker.REASON_LABELS  # 한글 표시 표는 한 곳(C)에만 둔다
 
 
 def test_register_tab_shows_form_for_admin_in_dev_mode(monkeypatch):
@@ -101,18 +115,26 @@ def test_register_tab_shows_form_for_admin_in_dev_mode(monkeypatch):
 
 # --- 오류 ---------------------------------------------------------------------
 
-def test_dicom_reader_not_ready_shows_notice(monkeypatch):
-    def not_ready(data):
-        raise NotImplementedError
+def test_registration_kept_when_quality_check_fails(dev, samples, monkeypatch):
+    # 자동 점검이 실패해도 등록은 유지되고, 다시 점검할 수 있다는 안내가 나온다 (§4, C 리뷰 #49)
+    def broken(gray, thresholds):
+        raise StorageError("점검 결과를 저장하지 못했습니다.")
 
-    monkeypatch.setattr(register.dicom_io, "read_tags", not_ready)
-    filled, notice = register._read_dicom_tags("scan.dcm", b"...")
-    assert filled == {} and "준비되지 않았습니다" in notice
+    monkeypatch.setattr(register, "check_quality", broken)
+    outcome = register._register_and_check(_meta(), _png(samples["normal"]))
+    assert outcome["quality"] is None and "완료하지 못했습니다" in outcome["quality_error"]
+    case = cases.load_case(outcome["case_id"], actor_uid=DEV_USER["uid"])
+    assert case["latest_quality_status"] is None
+    assert "자동 점검 탭" in register.RECHECK_HINT
 
 
-def test_broken_dicom_shows_manual_input_notice():
-    # 실제 dicom_io: 확장자만 .dcm인 깨진 파일 → 직접 입력 안내 (예외로 화면이 멈추지 않음)
-    filled, notice = register._read_dicom_tags("scan.dcm", b"not a dicom file")
+def test_unreadable_dicom_tags_show_manual_input_notice(monkeypatch):
+    # DICOM이지만 태그를 읽지 못하면 예외로 멈추지 않고 직접 입력 안내
+    def broken(data):
+        raise ValidationError("DICOM 파일을 읽을 수 없습니다.")
+
+    monkeypatch.setattr(register.dicom_io, "read_tags", broken)
+    filled, notice = register._read_dicom_tags(_dicom())
     assert filled == {} and "읽지 못했습니다" in notice and "직접 입력" in notice
 
 

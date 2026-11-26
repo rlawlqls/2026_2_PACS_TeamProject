@@ -5,8 +5,8 @@
   → save_case → load_image → check_quality → save_quality_check → 결과 표시
 
 - 권한: registrar·admin만 등록 폼을 본다. save_case 안에서도 다시 검사한다 (§6.1).
-- 자동 점검이 실패해도 등록된 원본·케이스는 그대로 둔다 (§4 A·C 조율).
-- C의 dicom_io·check_quality가 아직 stub이면 안내 메시지를 보여 주고, 완성되면 그대로 동작한다.
+- 자동 점검이 실패해도 등록된 원본·케이스는 그대로 둔다 (§4 A·C 조율). 다시 점검은 자동 점검 탭(C)에서 한다.
+- DICOM 여부는 파일 이름이 아니라 내용(dicom_io.is_dicom)으로 판단한다 (§7 호출 순서).
 - session_state 키: register_* (이 탭 전용), selected_case_id·selected_image_id (탭 공유, §7)
 """
 
@@ -15,30 +15,25 @@ import streamlit as st
 from src import dicom_io
 from src.config import DEFAULT_THRESHOLDS
 from src.errors import AppError
-from src.quality.checker import check_quality
+from src.quality.checker import REASON_LABELS, check_quality  # 사유 코드 → 한글 표시는 C의 표 하나만 쓴다
 from src.services.cases import load_image, save_case, save_quality_check
 from src.ui import style
 
 REGISTER_ROLES = ("registrar", "admin")
 EXAM_TYPES = ["X-ray", "CT", "MRI", "Other"]
 EXAM_LABELS = {"X-ray": "X-ray", "CT": "CT", "MRI": "MRI", "Other": "기타"}
-# §4: 점검 사유 코드 → 화면 표시
-REASON_LABELS = {
-    "too_dark": "어두움",
-    "too_bright": "너무 밝음",
-    "low_contrast": "낮은 대비",
-    "possibly_blurry": "흐림 의심",
-}
+RECHECK_HINT = "자동 점검 탭에서 다시 점검하고 저장할 수 있습니다."
 
 
-def _read_dicom_tags(name: str, data: bytes) -> tuple[dict, str | None]:
-    """DICOM이면 태그로 채울 값과 안내 문구를 돌려준다. 일반 영상이면 ({}, None)."""
-    if not name.lower().endswith(".dcm"):
+def _read_dicom_tags(data: bytes) -> tuple[dict, str | None]:
+    """DICOM이면 태그로 채울 값과 안내 문구를 돌려준다. 일반 영상이면 ({}, None).
+
+    파일 이름(확장자)이 아니라 내용으로 판단하므로, 이름이 다른 DICOM도 자동 입력된다.
+    """
+    if not dicom_io.is_dicom(data):
         return {}, None
     try:
         tags = dicom_io.read_tags(data)
-    except NotImplementedError:
-        return {}, "DICOM 태그 자동 입력 기능이 아직 준비되지 않았습니다 (C 담당). 검사 정보를 직접 입력해 주세요."
     except AppError as err:
         return {}, f"DICOM 태그를 읽지 못했습니다: {err} 검사 정보를 직접 입력해 주세요."
     filled = {key: tags.get(key) or "" for key in ("case_label", "exam_type", "description")}
@@ -49,7 +44,7 @@ def _register_and_check(metadata: dict, data: bytes) -> dict:
     """저장 → 자동 점검까지 실행하고 결과를 돌려준다 (Streamlit을 쓰지 않아 테스트하기 쉽다).
 
     반환: {"case_id", "image_id", "quality": 점검 결과 dict 또는 None, "quality_error": 안내 문구 또는 None}
-    등록 자체가 실패하면 AppError(또는 C 미구현 시 NotImplementedError)를 그대로 올린다.
+    등록 자체가 실패하면 AppError를 그대로 올린다.
     """
     case_id, image_id = save_case(metadata, data)
     outcome = {"case_id": case_id, "image_id": image_id, "quality": None, "quality_error": None}
@@ -57,8 +52,6 @@ def _register_and_check(metadata: dict, data: bytes) -> dict:
         result = check_quality(load_image(image_id), DEFAULT_THRESHOLDS)
         save_quality_check(image_id, result, actor_uid=None)  # None = 등록 직후 시스템 자동 점검
         outcome["quality"] = result
-    except NotImplementedError:
-        outcome["quality_error"] = "자동 화질 점검 기능이 아직 준비되지 않아 점검을 건너뛰었습니다 (C 담당)."
     except AppError as err:
         outcome["quality_error"] = f"자동 화질 점검을 완료하지 못했습니다: {err}"
     except Exception:
@@ -68,7 +61,7 @@ def _register_and_check(metadata: dict, data: bytes) -> dict:
 
 def _show_quality(outcome: dict) -> None:
     if outcome["quality_error"]:
-        st.warning(f'{outcome["quality_error"]} 등록은 완료되었고, 원본은 그대로 보관됩니다.')
+        st.warning(f'{outcome["quality_error"]} 등록은 완료되었고, 원본은 그대로 보관됩니다. {RECHECK_HINT}')
         return
     result = outcome["quality"]
     if result["status"] == "pass":
@@ -107,7 +100,7 @@ def render() -> None:
     file_key = f"{uploaded.name}:{uploaded.size}"
     if st.session_state.get("register_file_key") != file_key:
         # 새 파일을 고르면 입력칸을 그 파일 기준으로 다시 채운다.
-        filled, notice = _read_dicom_tags(uploaded.name, data)
+        filled, notice = _read_dicom_tags(data)
         st.session_state["register_file_key"] = file_key
         st.session_state["register_notice"] = notice
         st.session_state["register_case_label"] = filled.get("case_label", "")
@@ -136,9 +129,6 @@ def render() -> None:
         with st.spinner("등록하고 화질을 점검하는 중입니다..."):
             try:
                 outcome = _register_and_check(metadata, data)
-            except NotImplementedError:
-                st.error("DICOM 파일 처리 기능이 아직 준비되지 않았습니다 (C 담당). PNG/JPEG로 먼저 확인해 주세요.")
-                return
             except AppError as err:
                 style.show_app_error(err)
                 return
