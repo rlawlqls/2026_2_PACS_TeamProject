@@ -1,11 +1,16 @@
 # 공통 테마 (A 소유, TEAM_CONTRACT §2). secrets.toml은 이 폴더에 두더라도 커밋 금지.
+# 글꼴(Pretendard)·버튼·헤더 등 세부 디자인은 src/ui/style.py의 CSS에서 적용한다.
 [theme]
-primaryColor = "#1F6FB2"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F1F5F9"
-textColor = "#1E293B"
+primaryColor = "#1264A3"
+backgroundColor = "#F5F7FA"
+secondaryBackgroundColor = "#E9F3FC"
+textColor = "#192B3B"
 font = "sans serif"
 
+[client]
+# 오른쪽 위 ⋮ 메뉴·Deploy 버튼 숨김. 메뉴의 Dark 테마로 바꾸면 흰 패널에 흰 글씨가 되어 화면이 깨지기 때문.
+toolbarMode = "minimal"
+
 [server]
-# 업로드 제한 10MB (TEAM_CONTRACT §3.1). 실제 크기 검사는 save_case에서 다시 한다.
-maxUploadSize = 10
+# 업로드 제한 25MB (TEAM_CONTRACT v2.2). 실제 크기 검사는 save_case에서 다시 한다.
+maxUploadSize = 25
