@@ -2,8 +2,14 @@
 
 import pytest
 
-from src.errors import PermissionDeniedError, StateConflictError, ValidationError
-from src.services.workflow import check_transition
+from src.errors import (
+    NotFoundError,
+    PermissionDeniedError,
+    StateConflictError,
+    ValidationError,
+)
+from src.services import workflow
+from src.services.workflow import assign_case, check_transition, transition_case
 
 
 @pytest.mark.parametrize(
@@ -138,3 +144,165 @@ def test_undefined_transition_is_rejected(current_status, action):
             note="사유",
             has_note_or_report=True,
         )
+
+
+class ImmediateTransaction:
+    """Firestore 트랜잭션 API를 단위 테스트에서 즉시 실행한다."""
+
+    def get(self, ref):
+        return ref.get()
+
+    def update(self, ref, data):
+        ref.update(data)
+
+    def set(self, ref, data):
+        ref.set(data)
+
+
+class IteratorTransaction(ImmediateTransaction):
+    """실제 Firestore처럼 get 결과를 반복자로 반환한다."""
+
+    def get(self, ref):
+        return iter([ref.get()])
+
+
+@pytest.fixture
+def workflow_db(fake_db, monkeypatch):
+    monkeypatch.setattr(
+        workflow,
+        "_run_transaction",
+        lambda db, operation: operation(ImmediateTransaction()),
+    )
+    fake_db.data["users"] = {
+        "uid_admin": {"role": "admin", "active": True},
+        "uid_reviewer": {"role": "reviewer", "active": True},
+        "uid_other_reviewer": {"role": "reviewer", "active": True},
+        "uid_registrar": {"role": "registrar", "active": True},
+        "uid_inactive": {"role": "reviewer", "active": False},
+    }
+    fake_db.data["cases"] = {
+        "case_demo": {
+            "status": "registered",
+            "assigned_reviewer_uid": None,
+            "registered_by": "uid_registrar",
+        }
+    }
+    return fake_db
+
+
+def test_transaction_snapshot_accepts_firestore_iterator(workflow_db):
+    ref = workflow_db.collection("cases").document("case_demo")
+
+    snapshot = workflow._transaction_snapshot(IteratorTransaction(), ref)
+
+    assert snapshot.exists
+    assert snapshot.to_dict()["status"] == "registered"
+
+
+def test_assign_case_updates_case_and_creates_event(workflow_db):
+    result = assign_case("case_demo", "uid_reviewer", "uid_admin")
+
+    stored = workflow_db.data["cases"]["case_demo"]
+    assert result["case_id"] == "case_demo"
+    assert result["status"] == "assigned"
+    assert result["assigned_reviewer_uid"] == "uid_reviewer"
+    assert stored["status"] == "assigned"
+    assert stored["assigned_reviewer_uid"] == "uid_reviewer"
+
+    events = list(workflow_db.data["case_events"].values())
+    assert len(events) == 1
+    assert events[0]["action"] == "assign_case"
+    assert events[0]["from_status"] == "registered"
+    assert events[0]["to_status"] == "assigned"
+    assert events[0]["actor_uid"] == "uid_admin"
+
+
+@pytest.mark.parametrize("actor_uid", ["uid_registrar", "uid_reviewer"])
+def test_assign_case_requires_admin(workflow_db, actor_uid):
+    with pytest.raises(PermissionDeniedError):
+        assign_case("case_demo", "uid_reviewer", actor_uid)
+
+
+@pytest.mark.parametrize("reviewer_uid", ["uid_registrar", "uid_inactive"])
+def test_assign_case_requires_active_reviewer(workflow_db, reviewer_uid):
+    with pytest.raises(PermissionDeniedError):
+        assign_case("case_demo", reviewer_uid, "uid_admin")
+
+
+def test_assign_case_rejects_unknown_reviewer(workflow_db):
+    with pytest.raises(NotFoundError):
+        assign_case("case_demo", "uid_missing", "uid_admin")
+
+
+def test_assign_case_rejects_missing_case(workflow_db):
+    with pytest.raises(NotFoundError):
+        assign_case("case_missing", "uid_reviewer", "uid_admin")
+
+
+def test_assign_case_rejects_duplicate_assignment(workflow_db):
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+
+    with pytest.raises(StateConflictError):
+        assign_case("case_demo", "uid_reviewer", "uid_admin")
+
+
+def test_transition_case_starts_review_and_creates_event(workflow_db):
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+
+    result = transition_case("case_demo", "start_review", "uid_reviewer")
+
+    assert result["status"] == "reviewing"
+    assert workflow_db.data["cases"]["case_demo"]["status"] == "reviewing"
+    events = list(workflow_db.data["case_events"].values())
+    assert [event["action"] for event in events] == ["assign_case", "start_review"]
+
+
+def test_transition_case_rejects_unassigned_reviewer(workflow_db):
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+
+    with pytest.raises(PermissionDeniedError):
+        transition_case("case_demo", "start_review", "uid_other_reviewer")
+
+
+def test_transition_case_records_recheck_note(workflow_db):
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+    transition_case("case_demo", "start_review", "uid_reviewer")
+
+    result = transition_case(
+        "case_demo",
+        "request_recheck",
+        "uid_reviewer",
+        note="  밝기 확인 필요  ",
+    )
+
+    assert result["status"] == "needs_review"
+    events = list(workflow_db.data["case_events"].values())
+    assert events[-1]["note"] == "밝기 확인 필요"
+
+
+def test_transition_case_requires_content_before_completion(workflow_db):
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+    transition_case("case_demo", "start_review", "uid_reviewer")
+
+    with pytest.raises(StateConflictError):
+        transition_case("case_demo", "complete_review", "uid_reviewer")
+
+
+def test_transition_case_completes_when_note_exists(workflow_db):
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+    transition_case("case_demo", "start_review", "uid_reviewer")
+    workflow_db.data["review_notes"] = {
+        "note_demo": {"case_id": "case_demo", "content": "검토 완료"}
+    }
+
+    result = transition_case("case_demo", "complete_review", "uid_reviewer")
+
+    assert result["status"] == "completed"
+
+
+def test_transition_case_rejects_duplicate_action(workflow_db):
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+    transition_case("case_demo", "start_review", "uid_reviewer")
+
+    with pytest.raises(StateConflictError):
+        transition_case("case_demo", "start_review", "uid_reviewer")
