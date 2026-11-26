@@ -85,7 +85,7 @@
   - AI 활용 범위
 - 생성 전 `gh pr list --state open`으로 열린 PR이 3개 미만인지 확인한다 (§0).
 - 리뷰어: **코드가 바뀌는 PR**은 docs/GIT_RULES.md §1 표에서 사용자 본인을 뺀 팀원 전원을 지정하고, 1명 이상 Approve하면 머지할 수 있다고 안내한다. **오타·작은 문서 수정 PR**은 리뷰어 없이 만들고, 사용자가 바로 머지해도 된다고 안내한다.
-- **계약·규칙 변경 PR**(`docs/TEAM_CONTRACT.md`, `AGENTS.md`, `docs/GIT_RULES.md`)은 오타 수정이 아니면, 영향받는 팀원 전원이 Approve한 뒤에 머지하라고 안내한다.
+- **계약·규칙 변경 PR**(`docs/TEAM_CONTRACT.md`, `AGENTS.md`, `docs/GIT_RULES.md`)도 1명 이상 Approve하면 머지할 수 있다. 영향받는 팀원 전원을 리뷰어로 지정하고 팀 채팅에 알리라고 안내한다.
 - 생성 전 `git fetch origin && git merge origin/main`으로 최신화하고 테스트를 다시 돌린다.
   ```bash
   git push -u origin <브랜치>
