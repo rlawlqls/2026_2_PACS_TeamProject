@@ -46,7 +46,9 @@ def test_config_exposes_default_thresholds():
     from src.quality.thresholds import DEFAULT_THRESHOLDS as original
 
     assert DEFAULT_THRESHOLDS is original
-    assert DEFAULT_THRESHOLDS["version"] == "demo-v1"
+    # version 값은 C가 보정할 때 계약 변경 없이 바꾼다 (TEAM_CONTRACT §4) → 형식만 확인한다.
+    assert isinstance(DEFAULT_THRESHOLDS["version"], str)
+    assert DEFAULT_THRESHOLDS["version"].strip()
 
 
 def test_sample_fixture_follows_image_spec(samples):
