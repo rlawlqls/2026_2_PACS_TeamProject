@@ -44,6 +44,11 @@ _FORMATS = {
 _DEV_PREFIX_CASE = "case_dev_"
 _DEV_PREFIX_IMAGE = "img_dev_"
 
+# 개발 모드에서 등록 화면으로 올린 케이스·영상 (메모리 보관, 앱을 끄면 사라짐).
+# Firebase 없이도 등록 → 목록 → 뷰어·자동 점검 흐름을 확인할 수 있게 한다.
+_DEV_REGISTERED_CASES: list[dict] = []
+_DEV_REGISTERED_IMAGES: dict[str, np.ndarray] = {}
+
 
 def _dev_samples() -> dict[str, np.ndarray]:
     # 실제 모드에서는 sample_data를 import하지 않도록 함수 안에서 가져온다.
@@ -53,8 +58,8 @@ def _dev_samples() -> dict[str, np.ndarray]:
 
 
 def _dev_cases() -> list[dict]:
-    """샘플 영상 1장당 케이스 1개. C가 샘플을 추가하면 개발용 케이스도 자동으로 늘어난다."""
-    cases = []
+    """등록 화면으로 올린 케이스(최신순) + 샘플 영상 1장당 케이스 1개."""
+    cases = [dict(case) for case in reversed(_DEV_REGISTERED_CASES)]
     for number, name in enumerate(_dev_samples(), start=1):
         cases.append({
             "case_id": f"{_DEV_PREFIX_CASE}{name}",
@@ -69,10 +74,11 @@ def _dev_cases() -> list[dict]:
             "latest_check_id": None,
             "latest_quality_status": None,
         })
-        saved = _DEV_QUALITY.get(f"{_DEV_PREFIX_IMAGE}{name}")  # 개발 모드에서 저장한 점검 결과 반영
+    for case in cases:  # 개발 모드에서 저장한 점검 결과 반영
+        saved = _DEV_QUALITY.get(case["image_id"])
         if saved:
-            cases[-1]["latest_check_id"] = saved["check_id"]
-            cases[-1]["latest_quality_status"] = saved["status"]
+            case["latest_check_id"] = saved["check_id"]
+            case["latest_quality_status"] = saved["status"]
     return cases
 
 
@@ -83,7 +89,17 @@ def _dev_load_case(case_id: str) -> dict:
     raise NotFoundError("케이스를 찾을 수 없습니다.")
 
 
+def _dev_image_exists(image_id: str) -> bool:
+    return image_id in _DEV_REGISTERED_IMAGES or (
+        isinstance(image_id, str)
+        and image_id.startswith(_DEV_PREFIX_IMAGE)
+        and image_id.removeprefix(_DEV_PREFIX_IMAGE) in _dev_samples()
+    )
+
+
 def _dev_load_image(image_id: str) -> np.ndarray:
+    if image_id in _DEV_REGISTERED_IMAGES:
+        return _DEV_REGISTERED_IMAGES[image_id].copy()
     name = image_id.removeprefix(_DEV_PREFIX_IMAGE)
     samples = _dev_samples()
     if not image_id.startswith(_DEV_PREFIX_IMAGE) or name not in samples:
@@ -121,7 +137,12 @@ def _check_can_register(metadata: dict) -> str:
     uid = metadata.get("registered_by") if isinstance(metadata, dict) else None
     if not isinstance(uid, str) or not uid.strip():
         raise PermissionDeniedError("로그인이 필요합니다.")
-    if auth.get_user_role(uid) not in REGISTER_ROLES:
+    if is_dev_mode():
+        # 개발 모드에는 Firestore가 없으므로 세션의 가상 사용자(§7.1)만 인정한다.
+        role = DEV_USER["role"] if uid == DEV_USER["uid"] else None
+    else:
+        role = auth.get_user_role(uid)
+    if role not in REGISTER_ROLES:
         raise PermissionDeniedError("영상 등록 권한이 없습니다. 접수 담당자 또는 관리자만 등록할 수 있습니다.")
     return uid
 
@@ -147,7 +168,7 @@ def _clean_metadata(metadata: dict) -> dict:
     """§3.3 metadata를 검증하고 정리한 사본을 반환한다 (입력 dict는 수정하지 않음)."""
     label = str(metadata.get("case_label") or "").strip()
     if not label:
-        raise ValidationError("케이스 표시명(case_label)을 입력해 주세요.")
+        raise ValidationError("케이스 표시명(비식별 환자 ID)을 입력해 주세요.")
     exam_type = metadata.get("exam_type") or "Other"
     if exam_type not in EXAM_TYPES:
         raise ValidationError("검사 종류는 X-ray / CT / MRI / Other 중 하나여야 합니다.")
@@ -267,6 +288,24 @@ def save_case(metadata: dict, image_bytes: bytes) -> tuple[str, str]:
     ext, mime, source_format = _FORMATS[fmt]
     case_id = _new_id("case_")
     image_id = _new_id("img_")
+
+    if is_dev_mode():
+        # 개발 모드: 파일·Firestore 대신 메모리에 보관한다 (§7.1, 앱을 끄면 사라짐).
+        _DEV_REGISTERED_IMAGES[image_id] = gray.copy()
+        _DEV_REGISTERED_CASES.append({
+            "case_id": case_id,
+            "image_id": image_id,
+            "schema_version": models.SCHEMA_VERSION,
+            **meta,
+            "status": "registered",
+            "assigned_reviewer_uid": None,
+            "registered_by": uid,
+            "latest_check_id": None,
+            "latest_quality_status": None,
+            "source_format": source_format,
+        })
+        return case_id, image_id
+
     original = models.original_path(case_id, image_id, ext)
     display = models.display_path(case_id, image_id)
 
@@ -480,7 +519,7 @@ def save_quality_check(image_id: str, result: dict, actor_uid: str | None = None
     check_id = _new_id("qc_")
 
     if is_dev_mode():
-        if not isinstance(image_id, str) or not image_id.startswith(_DEV_PREFIX_IMAGE):
+        if not _dev_image_exists(image_id):
             raise NotFoundError("영상을 찾을 수 없습니다.")
         _DEV_QUALITY[image_id] = {"check_id": check_id, **clean}
         return check_id

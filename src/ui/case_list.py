@@ -32,9 +32,13 @@ def render() -> None:
         return
 
     labels = {case["case_id"]: f'{case["case_label"]} · {case["description"]}' for case in cases}
+    options = list(labels)
+    # 다른 탭(예: 영상 등록)에서 고른 케이스가 있으면 그것을 기본 선택으로 둔다.
+    current = st.session_state.get("selected_case_id")
     selected_case_id = st.selectbox(
         "케이스 선택",
-        options=list(labels),
+        options=options,
+        index=options.index(current) if current in options else 0,
         format_func=labels.get,
     )
     selected = next(case for case in cases if case["case_id"] == selected_case_id)
