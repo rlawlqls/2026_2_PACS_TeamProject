@@ -23,7 +23,18 @@ if user is None:
     login.render()
     st.stop()
 
-style.app_header(user, dev_mode=dev_mode)
+if dev_mode:
+    style.app_header(user, dev_mode=True)
+else:
+    header_col, logout_col = st.columns([9, 1])
+    with header_col:
+        style.app_header(user)
+    with logout_col:
+        # 로그아웃: 로그인 정보와 선택한 케이스·탭 입력값을 모두 비우고 로그인 화면으로 (§7).
+        if st.button("로그아웃", key="auth_logout", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
+
 if dev_mode:
     style.dev_mode_banner()
 

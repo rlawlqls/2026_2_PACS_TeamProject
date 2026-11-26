@@ -103,6 +103,14 @@ html, body, .stApp, .stApp *:not(code):not(pre):not(svg):not(path) {{
 .pacs-user {{ font-weight: 650; }}
 .pacs-role {{ color: var(--pacs-muted); font-size: 13px; margin-left: 4px; }}
 .pacs-who {{ white-space: nowrap; }}
+/* 헤더 옆 로그아웃 버튼: 헤더와 세로 가운데를 맞추고 글자가 꺾이지 않게 한다 */
+/* (헤더 높이 60px, 버튼 40px → 버튼을 10px 내린다) */
+[data-testid="stHorizontalBlock"]:has(.pacs-header) > [data-testid="column"]:last-child button {{
+  margin-top: 10px;
+}}
+[data-testid="stHorizontalBlock"]:has(.pacs-header) > [data-testid="column"]:last-child button p {{
+  white-space: nowrap;
+}}
 
 /* 좁은 화면(노트북 창을 줄였을 때·태블릿): 여백을 줄여 내용 영역을 넓힌다 */
 @media (max-width: 900px) {{
