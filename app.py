@@ -23,10 +23,9 @@ if user is None:
     login.render()
     st.stop()
 
-st.title("🩻 영상 품질 자동 점검")
+style.app_header(user, dev_mode=dev_mode)
 if dev_mode:
     style.dev_mode_banner()
-style.render_sidebar_user(user, dev_mode=dev_mode)
 
 TABS = [
     ("케이스 목록", case_list.render),       # A

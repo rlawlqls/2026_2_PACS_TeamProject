@@ -1,9 +1,10 @@
-# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.2
+# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.3
 
 > **목적:** A·B·C·D가 다른 파일에서 동시에 개발해도, 마지막에 `app.py`에서 곧바로 연결되도록 **함수 계약(API), 데이터 구조, 화면·권한·업무 상태, 저장, 검증, Git 규칙**을 고정한다.  
 > **적용 대상:** 초급프로젝트 PBL 교육용 웹 PACS / 팀 4명 / Python + Streamlit + Firebase Authentication + Cloud Firestore + JCloud  
-> **문서 상태:** **v2.2 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 킥오프 이슈에 동의 댓글을 남긴다.**  
+> **문서 상태:** **v2.3 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 킥오프 이슈에 동의 댓글을 남긴다.**  
 > **Git 규칙:** 브랜치·커밋·이슈·PR·리뷰 규칙은 [`docs/GIT_RULES.md`](GIT_RULES.md)가 최상위 규칙이다. 이 문서와 다르면 GIT_RULES를 따른다.  
+> **v2.3 변경 요약:** `search_cases`·`load_case`에 요청자 uid를 받는 **필수 키워드 인자 `actor_uid`** 추가 (§4, §6.1, §10.5, 이슈 #15). 서비스 함수는 Streamlit을 쓸 수 없어 `st.session_state`의 uid를 읽지 못하므로, 역할별 조회 범위(§6.1)를 서버 함수에서 검사하려면 uid를 인자로 받아야 한다. `load_image`는 그대로 — **B·C·D의 호출 코드는 영향이 없다** (`load_case`를 부르는 탭만 `actor_uid=` 한 줄 추가).  
 > **v2.2 변경 요약:** (1) **DICOM 지원 추가** — 교수님 지시. `.dcm` 업로드·태그 자동 추출·원본 보관까지, 뷰어 Window/Level과 3D는 범위 밖 (§0, §3.1, §3.2, §3.3, §3.5, §5, §7). (2) `src/dicom_io.py` 신설, 담당 **C** (§2, §4, §15). `sample_data/download_lidc.py`로 LIDC-IDRI 샘플 확보 (§3.4, §8.1). (3) 업로드 제한 10MB → **25MB** (§0, §3.1). (4) `pydicom`·`pyarrow` 추가, **항목 추가는 이슈 / 버전 변경은 전원 합의**로 완화 (§12). (5) 임계값 수치를 계약서에서 빼고 `quality/thresholds.py`를 단일 출처로 (§4). 샘플 생성 방식은 C 재량 (§3.4). **§3.1 공통 이미지 규격과 §4 함수 시그니처는 바뀌지 않았다 — B·D는 영향이 없다.**  
 > **v2.1 변경 요약:** (1) UI 소유권 — A는 `app.py`·공통 테마(`ui/style.py`)·로그인/목록/등록 화면, B/C/D는 자기 함수 + 자기 탭 파일 (§0, §1, §2, §7, §15). (2) 개발 모드 추가 (§7.1). (3) 팀원 시작 전 A 선행 작업 정리 (§15). (4) 영상 저장 방식(로컬 폴더로 개발, 배포 저장소는 배포 전 확정)·로그인 방식·서비스 계정 키 전달 규칙 (§0, §10, §11). (5) 테스트 방식 — 샘플은 코드로 생성, 테스트 파일을 담당별로 분리, 상태전이 순수 함수 `check_transition` (§2, §3.4, §4, §8). (6) 비교 실험·특화 기능 검증 기록 (§8.5). (7) 임계값 파일을 C 소유로 분리, `.gitignore`의 서비스 계정 키 패턴 수정.
 
@@ -266,14 +267,16 @@ def save_case(metadata: dict, image_bytes: bytes) -> tuple[str, str]:
       - 삭제 실패 시 고아 파일 경로를 로그에 기록하고 StorageError 발생
     """
 
-def load_case(case_id: str) -> dict:
-    """케이스 메타데이터/상태/최근 점검 요약 포함 dict; 없으면 NotFoundError."""
+def load_case(case_id: str, *, actor_uid: str) -> dict:
+    """케이스 메타데이터/상태/최근 점검 요약 포함 dict; 없으면 NotFoundError.
+    actor_uid의 역할로 §6.1 조회 범위를 검사한다. 범위 밖 케이스면 PermissionDeniedError.
+    """
 
 def load_image(image_id: str) -> np.ndarray:
     """Storage 파일을 디코딩하여 (H,W) uint8 grayscale로 반환."""
 
-def search_cases(query: str = "", status: str | None = None) -> list[dict]:
-    """권한 범위 내 케이스 목록, 등록일 내림차순.
+def search_cases(query: str = "", status: str | None = None, *, actor_uid: str) -> list[dict]:
+    """actor_uid의 권한 범위 내 케이스 목록, 등록일 내림차순.
     registrar: 본인 등록 케이스만
     reviewer: 본인 배정 케이스만
     admin: 전체
@@ -544,6 +547,8 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 
 **비로그인·비활성 계정:** 세션에 검증된 uid가 없거나 `users/{uid}.active`가 false이면 모든 서비스 함수가 `PermissionDeniedError`를 낸다. 화면에서 버튼을 숨기는 것만으로는 충분하지 않다.
 
+**검사 위치:** 서비스 함수는 Streamlit을 호출하지 않으므로 화면이 `st.session_state["auth_user"]["uid"]`를 `actor_uid`(또는 `registered_by`)로 넘기고, **서비스 함수가 그 uid의 역할을 `get_user_role()`로 다시 읽어 검사한다.** 조회 범위는 `search_cases`·`load_case`에서 걸러지며, 화면은 이렇게 받은 케이스의 `image_id`만 `load_image`에 넘긴다.
+
 ### 6.2 상태 전이 표
 
 | 현재 `status` | `action` | 다음 `status` | 실행자 / 조건 |
@@ -786,7 +791,7 @@ def delete_image(path: str) -> None:
    본문: `{"email": ..., "password": ..., "returnSecureToken": true}`
 2. 응답의 `idToken`을 Admin SDK `auth.verify_id_token()`으로 검증해 `uid`를 얻는다.
 3. Firestore `users/{uid}`에서 `role`, `active`를 읽는다 (`get_user_role`). 없거나 비활성이면 `PermissionDeniedError`.
-4. `uid`·`role`은 `st.session_state["auth_*"]`에만 둔다. 이후 모든 서비스 함수는 이 검증된 `uid`로 권한을 검사한다.
+4. `uid`·`role`은 `st.session_state["auth_*"]`에만 둔다. 이후 화면은 이 검증된 `uid`를 서비스 함수의 `actor_uid` 인자로 넘기고, 서비스 함수가 그 uid로 권한을 검사한다 (§6.1 검사 위치).
 5. 로그인 실패 메시지는 "이메일 또는 비밀번호가 올바르지 않습니다"처럼 원인을 구분하지 않는다. 비밀번호·토큰은 로그에 남기지 않는다.
 
 ### 10.6 서비스 계정 키·테스트 데이터 규칙
