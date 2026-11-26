@@ -11,6 +11,7 @@ import pytest
 from sample_data import generate_samples as gs
 from sample_data.generate_samples import make_samples
 from src.errors import ValidationError
+from src.quality.checker import check_quality
 from src.quality.thresholds import DEFAULT_THRESHOLDS
 
 SAMPLE_NAMES = {"normal", "dark", "bright", "low_contrast", "blur", "gaussian_noise", "salt_pepper"}
@@ -26,20 +27,12 @@ EXPECTED_REASONS = {
 
 
 def contract_reasons(gray: np.ndarray, thresholds: dict) -> list[str]:
-    """TEAM_CONTRACT §4의 구현 식으로 점검 사유를 계산한다 (check_quality 구현 전 기준용)."""
-    mean = np.mean(gray)
-    std = np.std(gray)
-    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-    reasons = []
-    if mean < thresholds["brightness_min"]:
-        reasons.append("too_dark")
-    elif mean > thresholds["brightness_max"]:
-        reasons.append("too_bright")
-    if std < thresholds["contrast_std_min"]:
-        reasons.append("low_contrast")
-    if laplacian_var < thresholds["laplacian_var_min"]:
-        reasons.append("possibly_blurry")
-    return reasons
+    """샘플이 실제 점검 함수(check_quality)에서 받는 사유.
+
+    예전에는 계약 식을 테스트 안에서 따로 계산했는데, 계약이 바뀌면(v2.4 512px 축소)
+    실제 구현과 어긋나므로 check_quality 결과를 그대로 쓴다.
+    """
+    return check_quality(gray, thresholds)["reasons"]
 
 
 # ---------------------------------------------------------------------------
