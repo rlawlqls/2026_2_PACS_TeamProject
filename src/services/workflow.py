@@ -13,7 +13,7 @@ from src.errors import (
     StorageError,
     ValidationError,
 )
-from src.services import firebase_client
+from src.services import auth, firebase_client
 
 
 _TRANSITIONS = {
@@ -35,20 +35,22 @@ def _server_timestamp():
     return SERVER_TIMESTAMP
 
 
-def _get_active_user(db, uid: str, *, target: bool = False) -> dict:
-    if not isinstance(uid, str) or not uid.strip():
-        raise PermissionDeniedError("로그인이 필요합니다.")
+def _check_assignable_reviewer(db, reviewer_uid: str) -> None:
+    """배정 대상이 활성 reviewer인지 확인한다.
 
-    snapshot = db.collection("users").document(uid).get()
-    if not snapshot.exists:
-        if target:
-            raise NotFoundError("검토자 계정을 찾을 수 없습니다.")
-        raise PermissionDeniedError("사용자 권한을 확인할 수 없습니다.")
-
-    user = snapshot.to_dict() or {}
-    if not user.get("active"):
-        raise PermissionDeniedError("비활성 계정은 업무를 수행할 수 없습니다.")
-    return user
+    계정이 없으면 NotFoundError(배정 화면에서 잘못 고른 경우), 있으면 실행자와 같은 기준
+    (auth.get_user_role: active가 정확히 True, 역할 유효)으로 검사한다.
+    """
+    if not isinstance(reviewer_uid, str) or not reviewer_uid.strip():
+        raise NotFoundError("검토자 계정을 찾을 수 없습니다.")
+    if not db.collection("users").document(reviewer_uid).get().exists:
+        raise NotFoundError("검토자 계정을 찾을 수 없습니다.")
+    try:
+        role = auth.get_user_role(reviewer_uid)
+    except PermissionDeniedError:
+        raise PermissionDeniedError("활성 검토자 계정만 배정할 수 있습니다.") from None
+    if role != "reviewer":
+        raise PermissionDeniedError("활성 검토자 계정만 배정할 수 있습니다.")
 
 
 def _has_note_or_report(db, case_id: str) -> bool:
@@ -125,8 +127,7 @@ def transition_case(case_id: str, action: str,
 
     try:
         db = firebase_client.get_db()
-        actor = _get_active_user(db, actor_uid)
-        actor_role = actor.get("role", "")
+        actor_role = auth.get_user_role(actor_uid)  # §6.1: 역할은 auth에서 다시 읽는다
         has_content = _has_note_or_report(db, case_id)
         case_ref = db.collection("cases").document(case_id)
         event_ref = db.collection("case_events").document(_new_id("evt_"))
@@ -183,13 +184,9 @@ def assign_case(case_id: str, reviewer_uid: str, actor_uid: str) -> dict:
 
     try:
         db = firebase_client.get_db()
-        actor = _get_active_user(db, actor_uid)
-        if actor.get("role") != "admin":
+        if auth.get_user_role(actor_uid) != "admin":  # §6.1: 역할은 auth에서 다시 읽는다
             raise PermissionDeniedError("관리자만 검토자를 배정할 수 있습니다.")
-
-        reviewer = _get_active_user(db, reviewer_uid, target=True)
-        if reviewer.get("role") != "reviewer":
-            raise PermissionDeniedError("활성 검토자 계정만 배정할 수 있습니다.")
+        _check_assignable_reviewer(db, reviewer_uid)
 
         case_ref = db.collection("cases").document(case_id)
         event_ref = db.collection("case_events").document(_new_id("evt_"))

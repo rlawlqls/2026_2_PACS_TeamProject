@@ -179,6 +179,11 @@ def workflow_db(fake_db, monkeypatch):
         "uid_other_reviewer": {"role": "reviewer", "active": True},
         "uid_registrar": {"role": "registrar", "active": True},
         "uid_inactive": {"role": "reviewer", "active": False},
+        # active가 bool True가 아닌 값: auth.get_user_role과 같은 기준으로 모두 비활성 처리
+        "uid_active_str_false": {"role": "admin", "active": "false"},
+        "uid_active_one": {"role": "reviewer", "active": 1},
+        "uid_active_missing": {"role": "reviewer"},
+        "uid_no_role": {"active": True},
     }
     fake_db.data["cases"] = {
         "case_demo": {
@@ -306,3 +311,44 @@ def test_transition_case_rejects_duplicate_action(workflow_db):
 
     with pytest.raises(StateConflictError):
         transition_case("case_demo", "start_review", "uid_reviewer")
+
+
+# --- 역할 확인은 auth.get_user_role 기준 (§6.1) -------------------------------
+
+def test_workflow_uses_auth_get_user_role(workflow_db, monkeypatch):
+    calls = []
+
+    def fake_role(uid):
+        calls.append(uid)
+        return {"uid_admin": "admin", "uid_reviewer": "reviewer"}[uid]
+
+    monkeypatch.setattr(workflow.auth, "get_user_role", fake_role)
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+    transition_case("case_demo", "start_review", "uid_reviewer")
+    assert calls == ["uid_admin", "uid_reviewer", "uid_reviewer"]  # 실행자, 배정 대상, 실행자
+
+
+@pytest.mark.parametrize("actor_uid", ["uid_active_str_false", "uid_missing", "", None])
+def test_assign_case_rejects_actor_not_active_true(workflow_db, actor_uid):
+    with pytest.raises(PermissionDeniedError):
+        assign_case("case_demo", "uid_reviewer", actor_uid)
+
+
+@pytest.mark.parametrize("reviewer_uid", ["uid_active_one", "uid_active_missing", "uid_no_role"])
+def test_assign_case_rejects_reviewer_not_active_true(workflow_db, reviewer_uid):
+    with pytest.raises(PermissionDeniedError):
+        assign_case("case_demo", reviewer_uid, "uid_admin")
+    assert workflow_db.data["cases"]["case_demo"]["status"] == "registered"
+
+
+@pytest.mark.parametrize("reviewer_uid", ["", None])
+def test_assign_case_rejects_empty_reviewer_uid(workflow_db, reviewer_uid):
+    with pytest.raises(NotFoundError):
+        assign_case("case_demo", reviewer_uid, "uid_admin")
+
+
+def test_transition_case_rejects_actor_not_active_true(workflow_db):
+    workflow_db.data["cases"]["case_demo"].update(status="assigned", assigned_reviewer_uid="uid_active_one")
+    with pytest.raises(PermissionDeniedError):
+        transition_case("case_demo", "start_review", "uid_active_one")
+    assert workflow_db.data["cases"]["case_demo"]["status"] == "assigned"
