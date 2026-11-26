@@ -5,6 +5,7 @@ A가 Day 0 선행 작업으로 만든 stub이다. 실제 구현은 D가 한다.
 
 import uuid
 
+from src.config import is_dev_mode
 from src.errors import (
     AppError,
     NotFoundError,
@@ -23,6 +24,19 @@ _TRANSITIONS = {
     ("needs_review", "resume_review"): "reviewing",
     ("reviewing", "complete_review"): "completed",
 }
+
+
+#: 개발 모드에서 배정·상태 변경을 부르면 내는 안내 (TEAM_CONTRACT §7.1)
+DEV_MODE_MESSAGE = (
+    "개발 모드에서는 배정·업무 상태 변경을 저장하지 않습니다. "
+    "상태 전이는 실제 Firebase에 연결해 확인합니다 (TEAM_CONTRACT §7.1)."
+)
+
+
+def _reject_dev_mode() -> None:
+    """개발 모드는 화면 확인용이라 Firestore가 없다. Firebase 설정 오류처럼 보이지 않게 먼저 막는다."""
+    if is_dev_mode():
+        raise StorageError(DEV_MODE_MESSAGE)
 
 
 def _new_id(prefix: str) -> str:
@@ -121,7 +135,9 @@ def transition_case(case_id: str, action: str,
     """로그인 사용자 역할·담당자·현재 상태/허용 전이 검사 후
     Firestore 트랜잭션으로 상태 및 event 이력 저장.
     반환: 변경 후 케이스 dict; 실패 시 PermissionDeniedError 또는 StateConflictError.
+    개발 모드에서는 저장하지 않고 StorageError(DEV_MODE_MESSAGE)를 낸다.
     """
+    _reject_dev_mode()
     if not isinstance(case_id, str) or not case_id.strip():
         raise NotFoundError("케이스를 찾을 수 없습니다.")
 
@@ -178,7 +194,10 @@ def transition_case(case_id: str, action: str,
 
 
 def assign_case(case_id: str, reviewer_uid: str, actor_uid: str) -> dict:
-    """admin만 배정 가능; registered → assigned 처리 및 이벤트 저장."""
+    """admin만 배정 가능; registered → assigned 처리 및 이벤트 저장.
+    개발 모드에서는 저장하지 않고 StorageError(DEV_MODE_MESSAGE)를 낸다.
+    """
+    _reject_dev_mode()
     if not isinstance(case_id, str) or not case_id.strip():
         raise NotFoundError("케이스를 찾을 수 없습니다.")
 

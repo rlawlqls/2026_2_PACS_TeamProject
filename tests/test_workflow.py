@@ -6,6 +6,7 @@ from src.errors import (
     NotFoundError,
     PermissionDeniedError,
     StateConflictError,
+    StorageError,
     ValidationError,
 )
 from src.services import workflow
@@ -352,3 +353,27 @@ def test_transition_case_rejects_actor_not_active_true(workflow_db):
     with pytest.raises(PermissionDeniedError):
         transition_case("case_demo", "start_review", "uid_active_one")
     assert workflow_db.data["cases"]["case_demo"]["status"] == "assigned"
+
+
+# --- 개발 모드 (§7.1) ----------------------------------------------------------
+
+@pytest.mark.parametrize("call", [
+    lambda: assign_case("case_dev_normal", "uid_reviewer", "dev-admin"),
+    lambda: transition_case("case_dev_normal", "start_review", "dev-admin"),
+], ids=["assign_case", "transition_case"])
+def test_dev_mode_rejects_with_clear_message(monkeypatch, call):
+    monkeypatch.setenv("APP_ENV", "development")
+
+    def no_db():
+        raise AssertionError("개발 모드에서는 Firestore에 연결하지 않아야 한다")
+
+    monkeypatch.setattr("src.services.firebase_client.get_db", no_db)
+    with pytest.raises(StorageError) as info:
+        call()
+    assert str(info.value) == workflow.DEV_MODE_MESSAGE
+    assert "APP_ENV=development" not in str(info.value)  # 이미 개발 모드인데 개발 모드로 안내하지 않는다
+
+
+def test_production_mode_still_saves_transition(workflow_db):
+    # fake_db fixture는 APP_ENV=production이다: 개발 모드 차단이 실제 동작을 막지 않는지 확인
+    assert assign_case("case_demo", "uid_reviewer", "uid_admin")["status"] == "assigned"
