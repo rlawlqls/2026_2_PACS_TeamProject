@@ -17,7 +17,9 @@ def render() -> None:
     style.page_header("케이스 목록", "선택한 케이스는 뷰어·자동 점검·검토 탭에서 함께 사용됩니다.")
 
     try:
-        cases = search_cases()
+        # 로그인한 사용자의 uid로 조회 범위를 검사한다 (§6.1). app.py가 로그인 후에만 탭을 그린다.
+        actor_uid = st.session_state.get("auth_user", {}).get("uid", "")
+        cases = search_cases(actor_uid=actor_uid)
     except NotImplementedError:
         style.todo_placeholder("A", "실제 케이스 조회(search_cases)는 Firebase 연결 후 구현합니다.")
         return
@@ -30,9 +32,13 @@ def render() -> None:
         return
 
     labels = {case["case_id"]: f'{case["case_label"]} · {case["description"]}' for case in cases}
+    options = list(labels)
+    # 다른 탭(예: 영상 등록)에서 고른 케이스가 있으면 그것을 기본 선택으로 둔다.
+    current = st.session_state.get("selected_case_id")
     selected_case_id = st.selectbox(
         "케이스 선택",
-        options=list(labels),
+        options=options,
+        index=options.index(current) if current in options else 0,
         format_func=labels.get,
     )
     selected = next(case for case in cases if case["case_id"] == selected_case_id)

@@ -44,6 +44,11 @@ _FORMATS = {
 _DEV_PREFIX_CASE = "case_dev_"
 _DEV_PREFIX_IMAGE = "img_dev_"
 
+# 개발 모드에서 등록 화면으로 올린 케이스·영상 (메모리 보관, 앱을 끄면 사라짐).
+# Firebase 없이도 등록 → 목록 → 뷰어·자동 점검 흐름을 확인할 수 있게 한다.
+_DEV_REGISTERED_CASES: list[dict] = []
+_DEV_REGISTERED_IMAGES: dict[str, np.ndarray] = {}
+
 
 def _dev_samples() -> dict[str, np.ndarray]:
     # 실제 모드에서는 sample_data를 import하지 않도록 함수 안에서 가져온다.
@@ -53,8 +58,8 @@ def _dev_samples() -> dict[str, np.ndarray]:
 
 
 def _dev_cases() -> list[dict]:
-    """샘플 영상 1장당 케이스 1개. C가 샘플을 추가하면 개발용 케이스도 자동으로 늘어난다."""
-    cases = []
+    """등록 화면으로 올린 케이스(최신순) + 샘플 영상 1장당 케이스 1개."""
+    cases = [dict(case) for case in reversed(_DEV_REGISTERED_CASES)]
     for number, name in enumerate(_dev_samples(), start=1):
         cases.append({
             "case_id": f"{_DEV_PREFIX_CASE}{name}",
@@ -69,6 +74,11 @@ def _dev_cases() -> list[dict]:
             "latest_check_id": None,
             "latest_quality_status": None,
         })
+    for case in cases:  # 개발 모드에서 저장한 점검 결과 반영
+        saved = _DEV_QUALITY.get(case["image_id"])
+        if saved:
+            case["latest_check_id"] = saved["check_id"]
+            case["latest_quality_status"] = saved["status"]
     return cases
 
 
@@ -79,7 +89,17 @@ def _dev_load_case(case_id: str) -> dict:
     raise NotFoundError("케이스를 찾을 수 없습니다.")
 
 
+def _dev_image_exists(image_id: str) -> bool:
+    return image_id in _DEV_REGISTERED_IMAGES or (
+        isinstance(image_id, str)
+        and image_id.startswith(_DEV_PREFIX_IMAGE)
+        and image_id.removeprefix(_DEV_PREFIX_IMAGE) in _dev_samples()
+    )
+
+
 def _dev_load_image(image_id: str) -> np.ndarray:
+    if image_id in _DEV_REGISTERED_IMAGES:
+        return _DEV_REGISTERED_IMAGES[image_id].copy()
     name = image_id.removeprefix(_DEV_PREFIX_IMAGE)
     samples = _dev_samples()
     if not image_id.startswith(_DEV_PREFIX_IMAGE) or name not in samples:
@@ -117,16 +137,38 @@ def _check_can_register(metadata: dict) -> str:
     uid = metadata.get("registered_by") if isinstance(metadata, dict) else None
     if not isinstance(uid, str) or not uid.strip():
         raise PermissionDeniedError("로그인이 필요합니다.")
-    if auth.get_user_role(uid) not in REGISTER_ROLES:
+    if is_dev_mode():
+        # 개발 모드에는 Firestore가 없으므로 세션의 가상 사용자(§7.1)만 인정한다.
+        role = DEV_USER["role"] if uid == DEV_USER["uid"] else None
+    else:
+        role = auth.get_user_role(uid)
+    if role not in REGISTER_ROLES:
         raise PermissionDeniedError("영상 등록 권한이 없습니다. 접수 담당자 또는 관리자만 등록할 수 있습니다.")
     return uid
+
+
+def _check_actor_uid(actor_uid) -> None:
+    """요청자 uid가 비어 있으면 비로그인으로 보고 거절한다 (§6.1)."""
+    if not isinstance(actor_uid, str) or not actor_uid.strip():
+        raise PermissionDeniedError("로그인이 필요합니다.")
+
+
+def _can_view_case(role: str, actor_uid: str, case: dict) -> bool:
+    """§6.1 조회 범위: admin은 전체, registrar는 본인 등록, reviewer는 본인 배정 케이스."""
+    if role == "admin":
+        return True
+    if role == "registrar":
+        return case.get("registered_by") == actor_uid
+    if role == "reviewer":
+        return case.get("assigned_reviewer_uid") == actor_uid
+    return False
 
 
 def _clean_metadata(metadata: dict) -> dict:
     """§3.3 metadata를 검증하고 정리한 사본을 반환한다 (입력 dict는 수정하지 않음)."""
     label = str(metadata.get("case_label") or "").strip()
     if not label:
-        raise ValidationError("케이스 표시명(case_label)을 입력해 주세요.")
+        raise ValidationError("케이스 표시명(비식별 환자 ID)을 입력해 주세요.")
     exam_type = metadata.get("exam_type") or "Other"
     if exam_type not in EXAM_TYPES:
         raise ValidationError("검사 종류는 X-ray / CT / MRI / Other 중 하나여야 합니다.")
@@ -246,6 +288,24 @@ def save_case(metadata: dict, image_bytes: bytes) -> tuple[str, str]:
     ext, mime, source_format = _FORMATS[fmt]
     case_id = _new_id("case_")
     image_id = _new_id("img_")
+
+    if is_dev_mode():
+        # 개발 모드: 파일·Firestore 대신 메모리에 보관한다 (§7.1, 앱을 끄면 사라짐).
+        _DEV_REGISTERED_IMAGES[image_id] = gray.copy()
+        _DEV_REGISTERED_CASES.append({
+            "case_id": case_id,
+            "image_id": image_id,
+            "schema_version": models.SCHEMA_VERSION,
+            **meta,
+            "status": "registered",
+            "assigned_reviewer_uid": None,
+            "registered_by": uid,
+            "latest_check_id": None,
+            "latest_quality_status": None,
+            "source_format": source_format,
+        })
+        return case_id, image_id
+
     original = models.original_path(case_id, image_id, ext)
     display = models.display_path(case_id, image_id)
 
@@ -303,11 +363,18 @@ def save_case(metadata: dict, image_bytes: bytes) -> tuple[str, str]:
     return case_id, image_id
 
 
-def load_case(case_id: str) -> dict:
-    """케이스 메타데이터/상태/최근 점검 요약 포함 dict; 없으면 NotFoundError."""
+def load_case(case_id: str, *, actor_uid: str) -> dict:
+    """케이스 메타데이터/상태/최근 점검 요약 포함 dict; 없으면 NotFoundError.
+    actor_uid의 역할로 §6.1 조회 범위를 검사한다. 범위 밖 케이스면 PermissionDeniedError.
+
+    개발 모드(§7.1)에서는 가상 관리자만 있으므로 uid가 있는지만 확인한다.
+    """
+    _check_actor_uid(actor_uid)
     if is_dev_mode():
         return _dev_load_case(case_id)
 
+    # 역할을 먼저 확인한다: 비활성·미등록 계정에는 케이스가 있는지조차 알려 주지 않는다.
+    role = auth.get_user_role(actor_uid)
     if not isinstance(case_id, str) or not case_id:
         raise NotFoundError("케이스를 찾을 수 없습니다.")
     try:
@@ -321,6 +388,9 @@ def load_case(case_id: str) -> dict:
         raise
     except Exception as err:
         raise StorageError("케이스 정보를 불러오지 못했습니다.") from err
+
+    if not _can_view_case(role, actor_uid, case):
+        raise PermissionDeniedError("이 케이스를 볼 권한이 없습니다.")
 
     # 화면이 바로 영상을 열 수 있도록 원본 영상 id를 같이 돌려준다 (개발 모드 형식과 동일).
     case["image_id"] = original["image_id"] if original else None
@@ -357,14 +427,19 @@ def load_image(image_id: str) -> np.ndarray:
         raise StorageError("저장된 영상을 읽을 수 없습니다.") from err
 
 
-def search_cases(query: str = "", status: str | None = None) -> list[dict]:
-    """권한 범위 내 케이스 목록, 등록일 내림차순.
+def search_cases(query: str = "", status: str | None = None, *, actor_uid: str) -> list[dict]:
+    """actor_uid의 권한 범위 내 케이스 목록, 등록일 내림차순.
     registrar: 본인 등록 케이스만
     reviewer: 본인 배정 케이스만
     admin: 전체
+
+    개발 모드(§7.1)에서는 가상 관리자만 있으므로 uid가 있는지만 확인한다.
     """
+    _check_actor_uid(actor_uid)
     if is_dev_mode():
         return _dev_search_cases(query, status)
+    auth.get_user_role(actor_uid)  # 비로그인·비활성 계정은 여기서 PermissionDeniedError
+    # TODO(A): 실제 Firestore 조회 — _can_view_case()로 같은 범위 필터를 적용한다.
     raise NotImplementedError
 
 
@@ -380,9 +455,108 @@ def get_processing_runs(image_id: str) -> list[dict]:
     raise NotImplementedError
 
 
+QUALITY_STATUSES = ("pass", "needs_check")  # C의 check_quality 반환값 (§4)
+QUALITY_REASONS = ("too_dark", "too_bright", "low_contrast", "possibly_blurry")  # 이 순서로 정렬 (§4)
+QUALITY_METRICS = ("brightness_mean", "contrast_std", "laplacian_variance")
+
+# 개발 모드에서 저장한 점검 결과 (메모리, 앱을 끄면 사라짐). 개발용 케이스 목록에 반영된다.
+_DEV_QUALITY: dict[str, dict] = {}
+
+
+def _validate_quality_result(result: dict) -> dict:
+    """C의 check_quality 결과가 §4 표준 형식인지 검사하고, Firestore에 넣을 수 있는 사본을 만든다."""
+    if not isinstance(result, dict):
+        raise ValidationError("점검 결과 형식이 올바르지 않습니다.")
+    status = result.get("status")
+    if status not in QUALITY_STATUSES:
+        raise ValidationError("점검 결과의 status는 pass 또는 needs_check여야 합니다.")
+
+    metrics = result.get("metrics")
+    if not isinstance(metrics, dict) or set(QUALITY_METRICS) - set(metrics):
+        raise ValidationError("점검 결과에 밝기·대비·흐림 지표(metrics)가 모두 있어야 합니다.")
+    try:
+        # numpy 숫자는 Firestore에 그대로 못 넣으므로 float으로 바꾼다.
+        clean_metrics = {key: float(metrics[key]) for key in QUALITY_METRICS}
+    except (TypeError, ValueError) as err:
+        raise ValidationError("점검 지표는 숫자여야 합니다.") from err
+    if any(v != v for v in clean_metrics.values()):  # NaN
+        raise ValidationError("점검 지표에 계산되지 않은 값(NaN)이 있습니다.")
+
+    reasons = result.get("reasons")
+    if not isinstance(reasons, list) or any(r not in QUALITY_REASONS for r in reasons) or len(set(reasons)) != len(reasons):
+        raise ValidationError("점검 사유(reasons)에 알 수 없는 값이 있습니다.")
+    if reasons != sorted(reasons, key=QUALITY_REASONS.index):
+        raise ValidationError("점검 사유 순서가 표준(밝기 → 대비 → 흐림)과 다릅니다.")
+    if (status == "pass") != (not reasons):
+        raise ValidationError("pass이면 사유가 없어야 하고, needs_check이면 사유가 있어야 합니다.")
+
+    thresholds = result.get("thresholds")
+    if not isinstance(thresholds, dict) or not thresholds.get("version"):
+        raise ValidationError("점검 결과에 적용한 임계값(thresholds)과 version이 있어야 합니다.")
+    checker_version = result.get("checker_version")
+    if not isinstance(checker_version, str) or not checker_version:
+        raise ValidationError("점검 결과에 checker_version이 있어야 합니다.")
+
+    return {
+        "status": status,
+        "metrics": clean_metrics,
+        "reasons": list(reasons),
+        "thresholds": {k: (float(v) if isinstance(v, (int, float, np.number)) and not isinstance(v, bool) else v)
+                       for k, v in thresholds.items()},
+        "checker_version": checker_version,
+    }
+
+
 def save_quality_check(image_id: str, result: dict, actor_uid: str | None = None) -> str:
     """C의 result를 검증하고 Firestore quality_checks에 저장.
     cases/{case_id}.latest_check_id, latest_quality_status도 동시 업데이트.
     반환: check_id.
+
+    actor_uid가 None이면 등록 직후 시스템이 실행한 자동 점검으로 본다.
+    점검 결과 저장이 실패해도 원본 영상·케이스는 그대로 남는다 (§4 A와 C의 조율).
     """
-    raise NotImplementedError
+    clean = _validate_quality_result(result)
+    check_id = _new_id("qc_")
+
+    if is_dev_mode():
+        if not _dev_image_exists(image_id):
+            raise NotFoundError("영상을 찾을 수 없습니다.")
+        _DEV_QUALITY[image_id] = {"check_id": check_id, **clean}
+        return check_id
+
+    if not isinstance(image_id, str) or not image_id:
+        raise NotFoundError("영상을 찾을 수 없습니다.")
+    try:
+        db = firebase_client.get_db()
+        image_snap = db.collection("images").document(image_id).get()
+    except AppError:
+        raise
+    except Exception as err:
+        raise StorageError("영상 정보를 불러오지 못했습니다.") from err
+    if not image_snap.exists:
+        raise NotFoundError("영상을 찾을 수 없습니다.")
+    case_id = (image_snap.to_dict() or {}).get("case_id")
+    if not case_id:
+        raise NotFoundError("영상에 연결된 케이스가 없습니다.")
+
+    now = _server_timestamp()
+    check_doc: models.QualityCheckDoc = {
+        "case_id": case_id,
+        "image_id": image_id,
+        **clean,
+        "actor_uid": actor_uid,
+        "created_at": now,
+    }
+    try:
+        # 점검 기록과 케이스의 최신 점검 요약을 한 번에 저장한다 (하나만 저장되는 일이 없게).
+        batch = db.batch()
+        batch.set(db.collection("quality_checks").document(check_id), check_doc)
+        batch.update(db.collection("cases").document(case_id), {
+            "latest_check_id": check_id,
+            "latest_quality_status": clean["status"],
+            "updated_at": now,
+        })
+        batch.commit()
+    except Exception as err:
+        raise StorageError("점검 결과를 저장하지 못했습니다. 등록된 영상은 그대로 있습니다.") from err
+    return check_id
