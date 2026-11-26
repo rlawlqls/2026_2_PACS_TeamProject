@@ -1,9 +1,10 @@
-# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.3
+# 영상 품질 자동 점검 — 팀 공통 개발 규약 v2.4
 
 > **목적:** A·B·C·D가 다른 파일에서 동시에 개발해도, 마지막에 `app.py`에서 곧바로 연결되도록 **함수 계약(API), 데이터 구조, 화면·권한·업무 상태, 저장, 검증, Git 규칙**을 고정한다.  
 > **적용 대상:** 초급프로젝트 PBL 교육용 웹 PACS / 팀 4명 / Python + Streamlit + Firebase Authentication + Cloud Firestore + JCloud  
-> **문서 상태:** **v2.3 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 킥오프 이슈에 동의 댓글을 남긴다.**  
+> **문서 상태:** **v2.4 확정안**. 과제 지시서에 적힌 내용은 `[과제 필수]`, 기획안에 적힌 내용은 `[기획안]`, 본 문서에서 인터페이스 충돌을 막기 위해 새로 정한 세부사항은 `[팀 합의안]`으로 구분한다. **코딩 시작 전에 네 명 모두 이 문서를 읽고 킥오프 이슈에 동의 댓글을 남긴다.**  
 > **Git 규칙:** 브랜치·커밋·이슈·PR·리뷰 규칙은 [`docs/GIT_RULES.md`](GIT_RULES.md)가 최상위 규칙이다. 이 문서와 다르면 GIT_RULES를 따른다.  
+> **v2.4 변경 요약:** `check_quality`의 선명도(Laplacian 분산)를 **긴 변 512px로 축소한 뒤** 잰다 (512px 이하는 그대로, 확대 안 함). 원본 해상도에서는 필름 잡음 때문에 흐린 영상도 선명하게 나와 흐림을 구분하지 못했다 (§4, 이슈 #28). 반환 예시를 `demo-v2`·`checker_version 1.1.0`으로 맞추고 DICOM 입력의 밝기·대비 점검 한계를 적었다. **함수 이름·인자·반환 형식은 바뀌지 않았다 — A·B·D의 호출 코드는 영향이 없다.**  
 > **v2.3 변경 요약:** `search_cases`·`load_case`에 요청자 uid를 받는 **필수 키워드 인자 `actor_uid`** 추가 (§4, §6.1, §10.5, 이슈 #15). 서비스 함수는 Streamlit을 쓸 수 없어 `st.session_state`의 uid를 읽지 못하므로, 역할별 조회 범위(§6.1)를 서버 함수에서 검사하려면 uid를 인자로 받아야 한다. `load_image`는 그대로 — **B·C·D의 호출 코드는 영향이 없다** (`load_case`를 부르는 탭만 `actor_uid=` 한 줄 추가).  
 > **v2.2 변경 요약:** (1) **DICOM 지원 추가** — 교수님 지시. `.dcm` 업로드·태그 자동 추출·원본 보관까지, 뷰어 Window/Level과 3D는 범위 밖 (§0, §3.1, §3.2, §3.3, §3.5, §5, §7). (2) `src/dicom_io.py` 신설, 담당 **C** (§2, §4, §15). `sample_data/download_lidc.py`로 LIDC-IDRI 샘플 확보 (§3.4, §8.1). (3) 업로드 제한 10MB → **25MB** (§0, §3.1). (4) `pydicom`·`pyarrow` 추가, **항목 추가는 이슈 / 버전 변경은 전원 합의**로 완화 (§12). (5) 임계값 수치를 계약서에서 빼고 `quality/thresholds.py`를 단일 출처로 (§4). 샘플 생성 방식은 C 재량 (§3.4). **§3.1 공통 이미지 규격과 §4 함수 시그니처는 바뀌지 않았다 — B·D는 영향이 없다.**  
 > **v2.1 변경 요약:** (1) UI 소유권 — A는 `app.py`·공통 테마(`ui/style.py`)·로그인/목록/등록 화면, B/C/D는 자기 함수 + 자기 탭 파일 (§0, §1, §2, §7, §15). (2) 개발 모드 추가 (§7.1). (3) 팀원 시작 전 A 선행 작업 정리 (§15). (4) 영상 저장 방식(로컬 폴더로 개발, 배포 저장소는 배포 전 확정)·로그인 방식·서비스 계정 키 전달 규칙 (§0, §10, §11). (5) 테스트 방식 — 샘플은 코드로 생성, 테스트 파일을 담당별로 분리, 상태전이 순수 함수 `check_transition` (§2, §3.4, §4, §8). (6) 비교 실험·특화 기능 검증 기록 (§8.5). (7) 임계값 파일을 C 소유로 분리, `.gitignore`의 서비스 계정 키 패턴 수정.
@@ -396,7 +397,10 @@ def to_gray(data: bytes) -> np.ndarray:
 
 보정 근거와 한계는 `docs/experiments/`에 기록한다 (§8.5).
 
-**구현 식:** `mean = np.mean(gray)`, `std = np.std(gray)`, `laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()`. 단위는 **8-bit grayscale 기준**.
+**구현 식:** `mean = np.mean(gray)`, `std = np.std(gray)`, `laplacian_var = cv2.Laplacian(small, cv2.CV_64F).var()`. 단위는 **8-bit grayscale 기준**.
+
+- `small`: 영상의 긴 변이 **512px보다 크면 긴 변을 512px로 축소**(`cv2.INTER_AREA`, 가로세로 비율 유지)한 영상, **512px 이하면 `gray` 그대로** (확대하지 않음). 밝기 평균·표준편차는 축소하지 않은 `gray`에서 잰다.
+- 이유: 원본 해상도(약 2000px)의 Laplacian 분산은 필름의 미세한 잡음에 반응해, 흐린 영상에 약한 잡음만 섞여도 선명하게 나오고 크기가 다른 영상끼리 같은 기준을 쓸 수 없다. 화면에 보이는 크기에서 재면 사람이 느끼는 흐림과 맞는다. 작은 영상을 확대하면 확대 과정에서 값이 크게 떨어지므로 확대하지 않는다. 비교 실험은 이슈 #28, 기록은 `docs/experiments/`.
 
 #### `check_quality` 반환값 표준
 
@@ -411,16 +415,17 @@ def to_gray(data: bytes) -> np.ndarray:
     "reasons": ["too_dark", "low_contrast", "possibly_blurry"],
     "thresholds": {
         "brightness_min": 50.0, "brightness_max": 205.0,
-        "contrast_std_min": 35.0, "laplacian_var_min": 80.0,
-        "version": "demo-v1"
+        "contrast_std_min": 35.0, "laplacian_var_min": 65.0,
+        "version": "demo-v2"
     },
-    "checker_version": "1.0.0",
+    "checker_version": "1.1.0",
 }
 ```
 
 - `reasons` 순서: **`too_dark`/`too_bright` → `low_contrast` → `possibly_blurry`**. 경고 없으면 빈 리스트 + `pass`.
 - 표시 메시지는 UI에서 코드→한글 매핑: `too_dark`=어두움, `too_bright`=너무 밝음, `low_contrast`=낮은 대비, `possibly_blurry`=흐림 의심.
 - `status`가 `pass`여도 **진단 가능/재촬영 불필요를 보장하지 않음**.
+- **DICOM 입력의 한계:** `to_gray`가 1~99 백분위를 0~255로 펼치므로(§3.1) 노출이 잘못된 DICOM도 밝기·대비가 정상 범위로 맞춰진다. 그래서 DICOM에서는 `too_dark`·`too_bright`·`low_contrast`가 거의 나오지 않고, 이 세 사유는 주로 PNG/JPEG 업로드에서 의미가 있다. 자동 점검 탭과 보고서에 이 한계를 표시한다.
 
 ### D: Median + 업무 상태 전환
 

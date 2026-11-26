@@ -17,7 +17,9 @@ def render() -> None:
     style.page_header("케이스 목록", "선택한 케이스는 뷰어·자동 점검·검토 탭에서 함께 사용됩니다.")
 
     try:
-        cases = search_cases()
+        # 로그인한 사용자의 uid로 조회 범위를 검사한다 (§6.1). app.py가 로그인 후에만 탭을 그린다.
+        actor_uid = st.session_state.get("auth_user", {}).get("uid", "")
+        cases = search_cases(actor_uid=actor_uid)
     except NotImplementedError:
         style.todo_placeholder("A", "실제 케이스 조회(search_cases)는 Firebase 연결 후 구현합니다.")
         return

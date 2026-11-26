@@ -7,6 +7,6 @@ DEFAULT_THRESHOLDS = {
     "brightness_min": 50.0,       # mean < 50 → too_dark
     "brightness_max": 205.0,      # mean > 205 → too_bright
     "contrast_std_min": 35.0,     # std < 35 → low_contrast
-    "laplacian_var_min": 80.0,    # Laplacian variance < 80 → possibly_blurry
-    "version": "demo-v1",
+    "laplacian_var_min": 65.0,    # Laplacian variance(긴 변 512px 축소 후) < 65 → possibly_blurry (#28)
+    "version": "demo-v2",
 }
