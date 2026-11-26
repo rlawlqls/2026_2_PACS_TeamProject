@@ -377,3 +377,33 @@ def test_dev_mode_rejects_with_clear_message(monkeypatch, call):
 def test_production_mode_still_saves_transition(workflow_db):
     # fake_db fixture는 APP_ENV=production이다: 개발 모드 차단이 실제 동작을 막지 않는지 확인
     assert assign_case("case_demo", "uid_reviewer", "uid_admin")["status"] == "assigned"
+
+
+# --- Firestore 조회 방식 -------------------------------------------------------
+
+def test_has_note_or_report_uses_filter_keyword():
+    """위치 인자 where("case_id", "==", …)는 실제 SDK에서 UserWarning이 난다 → filter=FieldFilter만 허용."""
+    seen = []
+
+    class KeywordOnlyQuery:
+        def where(self, *args, filter=None):
+            assert not args, "where는 filter= 키워드로만 불러야 한다"
+            seen.append((filter.field_path, filter.op_string, filter.value))
+            return self
+
+        def stream(self):
+            return iter([])
+
+    class Db:
+        def collection(self, name):
+            return KeywordOnlyQuery()
+
+    assert workflow._has_note_or_report(Db(), "case_demo") is False
+    assert seen == [("case_id", "==", "case_demo")] * 2  # review_notes, reports
+
+
+def test_has_note_or_report_finds_matching_case_only(workflow_db):
+    workflow_db.data["review_notes"] = {"n1": {"case_id": "case_other", "content": "다른 케이스"}}
+    assert workflow._has_note_or_report(workflow_db, "case_demo") is False
+    workflow_db.data["reports"] = {"r1": {"case_id": "case_demo"}}
+    assert workflow._has_note_or_report(workflow_db, "case_demo") is True

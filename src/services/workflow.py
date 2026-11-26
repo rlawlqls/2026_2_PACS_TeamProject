@@ -68,9 +68,12 @@ def _check_assignable_reviewer(db, reviewer_uid: str) -> None:
 
 
 def _has_note_or_report(db, case_id: str) -> bool:
+    # 위치 인자 where("case_id", "==", …)는 SDK가 UserWarning을 낸다 → cases.py와 같이 filter= 사용
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
     for collection_name in ("review_notes", "reports"):
         records = db.collection(collection_name).where(
-            "case_id", "==", case_id
+            filter=FieldFilter("case_id", "==", case_id)
         ).stream()
         if next(iter(records), None) is not None:
             return True
