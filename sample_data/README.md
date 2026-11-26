@@ -17,15 +17,26 @@ python sample_data/generate_samples.py     # 화면 확인용 PNG 저장 (선택
 ```
 
 테스트는 PNG 파일을 읽지 않고 `make_samples(seed=0)`를 호출한다 (TEAM_CONTRACT §3.4).
-`seed`가 같으면 항상 같은 영상이 나온다.
+`seed`가 같으면 항상 같은 영상이 나온다. **샘플 버전 1.0.0** (`SAMPLES_VERSION`, #20)
 
-| 샘플 | 기대 판정 |
-|---|---|
-| `normal` | `pass` |
-| `dark` / `bright` | `too_dark` / `too_bright` |
-| `low_contrast` | `low_contrast` |
-| `blur` | `possibly_blurry` |
-| `gaussian_noise` / `salt_pepper` | Gaussian·Median 처리 전후 비교용 |
+기본 영상 `normal`은 **모의 흉부 X-ray**(공기·몸통·폐·종격동·심장·갈비뼈 도형 + 약한 잡음, 256×256)이고,
+나머지는 `normal`에 변형 함수를 하나씩 적용해 만든다. 변형 함수는 `(H, W) uint8`이면 크기와 상관없이
+쓸 수 있으므로 **LIDC 실제 영상에도 같은 조건을 적용**해 비교 실험을 할 수 있다 (TEAM_CONTRACT §8.5).
+
+| 샘플 | 만드는 방법 | 기대 판정 (demo-v1) | seed 0 지표 (mean / std / Laplacian 분산) |
+|---|---|---|---|
+| `normal` | `make_phantom()` | `pass` | 104.5 / 60.2 / 1013 |
+| `dark` | `adjust_exposure(×1.4, −145)` 저노출 — 어두운 부분이 검게 뭉개짐 | `too_dark` | 38.6 / 44.6 / 997 |
+| `bright` | `adjust_exposure(×1.8, +100)` 과노출 — 밝은 부분이 하얗게 날아감 | `too_bright` | 221.4 / 47.4 / 1435 |
+| `low_contrast` | `reduce_contrast(0.45)` 평균 중심으로 명암 폭 45% | `low_contrast` | 104.0 / 27.1 / 206 |
+| `blur` | `blur(σ=2.5)` | `possibly_blurry` | 104.5 / 57.3 / 4 |
+| `gaussian_noise` | `add_gaussian_noise(σ=20)` | — (Gaussian 처리 전후 비교용) | |
+| `salt_pepper` | `add_salt_pepper(4%)` | — (Median 처리 전후 비교용) | |
+
+**§8.1 원래 생성식과 다른 이유:** 무작위 잡음 영상을 어둡게(×0.2)·흐리게 만들면 표준편차도 함께 떨어져
+`dark`·`blur`에 `low_contrast`가 겹친다. 그러면 "의도한 사유가 나왔는지" 검증이 모호해지므로,
+각 품질 샘플이 **의도한 사유 1개만** 나오도록 바꿨다 (seed 0~9 자동 테스트, 0~29 수동 확인).
+임계값(`src/quality/thresholds.py`)을 보정하면 이 표와 테스트가 함께 바뀔 수 있다.
 
 ---
 
