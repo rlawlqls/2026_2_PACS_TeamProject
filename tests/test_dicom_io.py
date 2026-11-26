@@ -79,7 +79,8 @@ def test_is_dicom_true_for_dicom_bytes():
 
 
 @pytest.mark.parametrize("data", [png_bytes(), b"", b"DICM", b"\0" * 131, None, "DICM", 123,
-                                  b"\0" * 128 + b"DICX"])
+                                  b"\0" * 128 + b"DICX"],
+                         ids=["png", "empty", "magic-only", "too-short", "none", "str", "int", "wrong-magic"])
 def test_is_dicom_false_without_exception(data):
     assert dicom_io.is_dicom(data) is False
 
@@ -191,7 +192,7 @@ def test_to_gray_constant_image_returns_black():
     make_dicom(None),                                                # 픽셀 없음 (구조화 보고서 같은 파일)
     make_dicom(np.zeros((2, 8, 8), dtype=np.uint16)),                # 여러 프레임 (3차원)
     make_dicom(gradient_14bit())[:-100],                             # 픽셀 데이터가 잘림
-])
+], ids=["png", "no-pixels", "multi-frame", "truncated-pixels"])
 def test_to_gray_rejects_invalid_input(data):
     with pytest.raises(ValidationError):
         dicom_io.to_gray(data)
