@@ -11,7 +11,7 @@
   모두 `(H, W) uint8`을 받아 새 배열을 돌려주므로 LIDC 실제 영상(`dicom_io.to_gray` 결과)에도
   같은 조건을 적용할 수 있다 (비교 실험용, TEAM_CONTRACT §8.5).
 
-품질 점검 샘플(dark·bright·low_contrast·blur)은 demo-v1 기준값에서 **의도한 점검 사유 1개만**
+품질 점검 샘플(dark·bright·low_contrast·blur)은 demo-v1·demo-v2 기준값에서 **의도한 점검 사유 1개만**
 나오도록 변형 강도를 정했다. §8.1의 원래 생성식은 어둡게·흐리게 만들 때 대비(std)까지 떨어져
 `low_contrast`가 겹치므로, §3.4의 C 재량 범위에서 방식을 바꿨다 (#20).
 """
@@ -34,7 +34,7 @@ SAMPLES_VERSION = "1.0.0"
 #: 합성 영상 크기 (정사각형). 개발 모드가 화면을 열 때마다 생성하므로 작게 유지한다.
 SIZE = 256
 
-# 품질 점검 샘플의 변형 강도 (demo-v1 기준값에서 사유가 1개만 나오도록 seed 0~29로 확인)
+# 품질 점검 샘플의 변형 강도 (demo-v1·demo-v2 기준값에서 사유가 1개만 나오도록 seed 0~29로 확인)
 DARK_EXPOSURE = (1.4, -145.0)    # 저노출: 어두운 부분이 검게 뭉개짐 → 평균 밝기 약 39
 BRIGHT_EXPOSURE = (1.8, 100.0)   # 과노출: 밝은 부분이 하얗게 날아감 → 평균 밝기 약 221
 LOW_CONTRAST_FACTOR = 0.45       # 평균 중심으로 명암 폭을 45%로 줄임 → 표준편차 약 27
@@ -142,7 +142,7 @@ def add_salt_pepper(gray: np.ndarray, amount: float, rng: np.random.Generator) -
 def make_samples(seed: int = 0) -> dict[str, np.ndarray]:
     """샘플 영상 이름 → (H, W) uint8 grayscale 배열. seed가 같으면 같은 영상이 나온다.
 
-    | 이름 | 기대 판정 (demo-v1) |
+    | 이름 | 기대 판정 (demo-v2) |
     |---|---|
     | normal | 경고 없음 (pass) |
     | dark / bright | too_dark / too_bright |

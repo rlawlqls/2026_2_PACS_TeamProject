@@ -7,8 +7,11 @@
 
 - 밝기 평균 `brightness_mean = np.mean(gray)` — 낮으면 어둡고, 높으면 밝다.
 - 대비 `contrast_std = np.std(gray)` — 밝기가 얼마나 넓게 퍼져 있는지. 작으면 밋밋하다.
-- 선명도 `laplacian_variance = cv2.Laplacian(gray, cv2.CV_64F).var()` — Laplacian은 밝기가
+- 선명도 `laplacian_variance = cv2.Laplacian(small, cv2.CV_64F).var()` — Laplacian은 밝기가
   급하게 바뀌는 곳(경계)에서 크게 반응한다. 그 분산이 작으면 경계가 적다 = 흐리다.
+  `small`은 긴 변이 512px보다 크면 긴 변을 512px로 줄인 영상(INTER_AREA), 아니면 원본 그대로다
+  (계약 v2.4, #28). 원본 해상도에서는 필름 잡음 때문에 흐린 영상도 선명하게 나온다.
+  밝기·대비는 줄이지 않은 원본에서 잰다.
 
 판정: 지표가 기준값(thresholds)을 벗어나면 사유를 붙이고 `needs_check`, 하나도 없으면 `pass`.
 기준값과 **같으면 통과**로 본다 (`<`, `>`로 비교).
@@ -26,7 +29,7 @@ import numpy as np
 from src.errors import ValidationError
 
 #: 점검 로직의 버전 (quality_checks.checker_version). 판정 방식이 바뀌면 올린다.
-CHECKER_VERSION = "1.0.0"
+CHECKER_VERSION = "1.1.0"
 
 # 경고 사유 코드 (계약 §4). 결과 reasons에는 이 순서대로 들어간다.
 TOO_DARK = "too_dark"
@@ -90,6 +93,21 @@ def _clean_thresholds(thresholds: dict) -> dict:
     return cleaned
 
 
+#: 선명도를 잴 때 쓰는 긴 변의 최대 길이 (계약 v2.4). 이보다 작은 영상은 확대하지 않는다.
+SHARPNESS_MAX_SIDE = 512
+
+
+def _sharpness_image(gray: np.ndarray) -> np.ndarray:
+    """선명도 측정용 영상: 긴 변이 512px보다 크면 비율을 유지해 512px로 줄이고, 아니면 그대로 쓴다."""
+    height, width = gray.shape
+    long_side = max(height, width)
+    if long_side <= SHARPNESS_MAX_SIDE:
+        return gray
+    scale = SHARPNESS_MAX_SIDE / long_side
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))  # cv2는 (가로, 세로)
+    return cv2.resize(gray, size, interpolation=cv2.INTER_AREA)
+
+
 def measure_metrics(gray: np.ndarray) -> dict:
     """지표 3개만 잰다 (판정 없음). 기준값 보정 실험에서도 같은 식을 쓰기 위해 분리했다.
 
@@ -100,7 +118,7 @@ def measure_metrics(gray: np.ndarray) -> dict:
     return {
         "brightness_mean": float(np.mean(gray)),
         "contrast_std": float(np.std(gray)),
-        "laplacian_variance": float(cv2.Laplacian(gray, cv2.CV_64F).var()),
+        "laplacian_variance": float(cv2.Laplacian(_sharpness_image(gray), cv2.CV_64F).var()),
     }
 
 

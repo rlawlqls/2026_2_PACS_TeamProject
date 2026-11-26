@@ -23,7 +23,7 @@ python sample_data/generate_samples.py     # 화면 확인용 PNG 저장 (선택
 나머지는 `normal`에 변형 함수를 하나씩 적용해 만든다. 변형 함수는 `(H, W) uint8`이면 크기와 상관없이
 쓸 수 있으므로 **LIDC 실제 영상에도 같은 조건을 적용**해 비교 실험을 할 수 있다 (TEAM_CONTRACT §8.5).
 
-| 샘플 | 만드는 방법 | 기대 판정 (demo-v1) | seed 0 지표 (mean / std / Laplacian 분산) |
+| 샘플 | 만드는 방법 | 기대 판정 (demo-v2) | seed 0 지표 (mean / std / Laplacian 분산) |
 |---|---|---|---|
 | `normal` | `make_phantom()` | `pass` | 104.5 / 60.2 / 1013 |
 | `dark` | `adjust_exposure(×1.4, −145)` 저노출 — 어두운 부분이 검게 뭉개짐 | `too_dark` | 38.6 / 44.6 / 997 |

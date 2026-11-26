@@ -81,6 +81,59 @@ def test_checkerboard_metrics_match_hand_calculation():
 
 
 # ---------------------------------------------------------------------------
+# 선명도: 긴 변 512px 축소 후 측정 (계약 v2.4, #28)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("shape, small_size", [
+    ((1024, 2048), (512, 256)),   # 가로가 긴 영상 → cv2 크기는 (가로, 세로)
+    ((2000, 1000), (256, 512)),   # 세로가 긴 영상
+    ((600, 513), (438, 512)),     # 짧은 변 513 × 512/600 = 437.8 → 반올림 438 (비율 유지)
+    ((513, 100), (100, 512)),     # 긴 변이 512보다 1px만 커도 축소 (세로 513 → 512)
+], ids=["wide", "tall", "round", "just_over"])
+def test_large_image_sharpness_measured_after_resize_to_512(shape, small_size):
+    rng = np.random.default_rng(1)
+    gray = rng.integers(0, 256, shape, dtype=np.uint8)
+    small = cv2.resize(gray, small_size, interpolation=cv2.INTER_AREA)
+    metrics = measure_metrics(gray)
+    assert math.isclose(metrics["laplacian_variance"], cv2.Laplacian(small, cv2.CV_64F).var())
+    # 밝기·대비는 줄이지 않은 원본에서 잰다.
+    assert math.isclose(metrics["brightness_mean"], np.mean(gray))
+    assert math.isclose(metrics["contrast_std"], np.std(gray))
+
+
+@pytest.mark.parametrize("shape", [(512, 512), (300, 512), (32, 32)])
+def test_image_up_to_512_is_not_resized(shape):
+    rng = np.random.default_rng(2)
+    gray = rng.integers(0, 256, shape, dtype=np.uint8)
+    expected = cv2.Laplacian(gray, cv2.CV_64F).var()
+    assert math.isclose(measure_metrics(gray)["laplacian_variance"], expected)
+
+
+def test_fine_noise_on_blurry_large_image_is_still_blurry():
+    """#28의 문제 상황: 흐린 큰 영상에 1px 단위 잡음만 있으면 원본 해상도에서는 선명하게 나온다."""
+    blurry = np.tile(np.linspace(60, 190, 2048), (2048, 1))      # 경계 없는 그라데이션
+    gray = (blurry + checkerboard(0, 6, size=2048) - 3).astype(np.uint8)
+    assert cv2.Laplacian(gray, cv2.CV_64F).var() > FIXED["laplacian_var_min"]  # 원본에서는 통과했을 값
+    result = check_quality(gray, FIXED)
+    assert result["reasons"] == ["possibly_blurry"]
+
+
+def test_large_image_does_not_modify_input():
+    gray = np.random.default_rng(3).integers(0, 256, (1500, 900), dtype=np.uint8)
+    before = gray.copy()
+    check_quality(gray, FIXED)
+    assert np.array_equal(gray, before)
+
+
+@pytest.mark.parametrize("gray", [
+    np.zeros((1024, 1024), dtype=np.float32),
+    np.zeros((1024, 1024, 3), dtype=np.uint8),
+], ids=["float_large", "rgb_large"])
+def test_large_invalid_image_is_rejected_before_resize(gray):
+    with pytest.raises(ValidationError):
+        check_quality(gray, FIXED)
+
+
+# ---------------------------------------------------------------------------
 # 판정
 # ---------------------------------------------------------------------------
 def test_good_image_passes():
