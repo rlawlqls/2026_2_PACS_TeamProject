@@ -393,7 +393,10 @@ def to_gray(data: bytes) -> np.ndarray:
 
 보정 근거와 한계는 `docs/experiments/`에 기록한다 (§8.5).
 
-**구현 식:** `mean = np.mean(gray)`, `std = np.std(gray)`, `laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()`. 단위는 **8-bit grayscale 기준**.
+**구현 식:** `mean = np.mean(gray)`, `std = np.std(gray)`, `laplacian_var = cv2.Laplacian(small, cv2.CV_64F).var()`. 단위는 **8-bit grayscale 기준**.
+
+- `small`: 영상의 긴 변이 **512px보다 크면 긴 변을 512px로 축소**(`cv2.INTER_AREA`, 가로세로 비율 유지)한 영상, **512px 이하면 `gray` 그대로** (확대하지 않음). 밝기 평균·표준편차는 축소하지 않은 `gray`에서 잰다.
+- 이유: 원본 해상도(약 2000px)의 Laplacian 분산은 필름의 미세한 잡음에 반응해, 흐린 영상에 약한 잡음만 섞여도 선명하게 나오고 크기가 다른 영상끼리 같은 기준을 쓸 수 없다. 화면에 보이는 크기에서 재면 사람이 느끼는 흐림과 맞는다. 작은 영상을 확대하면 확대 과정에서 값이 크게 떨어지므로 확대하지 않는다. 비교 실험은 이슈 #28, 기록은 `docs/experiments/`.
 
 #### `check_quality` 반환값 표준
 
@@ -408,16 +411,17 @@ def to_gray(data: bytes) -> np.ndarray:
     "reasons": ["too_dark", "low_contrast", "possibly_blurry"],
     "thresholds": {
         "brightness_min": 50.0, "brightness_max": 205.0,
-        "contrast_std_min": 35.0, "laplacian_var_min": 80.0,
-        "version": "demo-v1"
+        "contrast_std_min": 35.0, "laplacian_var_min": 65.0,
+        "version": "demo-v2"
     },
-    "checker_version": "1.0.0",
+    "checker_version": "1.1.0",
 }
 ```
 
 - `reasons` 순서: **`too_dark`/`too_bright` → `low_contrast` → `possibly_blurry`**. 경고 없으면 빈 리스트 + `pass`.
 - 표시 메시지는 UI에서 코드→한글 매핑: `too_dark`=어두움, `too_bright`=너무 밝음, `low_contrast`=낮은 대비, `possibly_blurry`=흐림 의심.
 - `status`가 `pass`여도 **진단 가능/재촬영 불필요를 보장하지 않음**.
+- **DICOM 입력의 한계:** `to_gray`가 1~99 백분위를 0~255로 펼치므로(§3.1) 노출이 잘못된 DICOM도 밝기·대비가 정상 범위로 맞춰진다. 그래서 DICOM에서는 `too_dark`·`too_bright`·`low_contrast`가 거의 나오지 않고, 이 세 사유는 주로 PNG/JPEG 업로드에서 의미가 있다. 자동 점검 탭과 보고서에 이 한계를 표시한다.
 
 ### D: Median + 업무 상태 전환
 
