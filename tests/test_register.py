@@ -1,6 +1,7 @@
 """영상 등록 흐름 테스트 (A 소유) — 개발 모드에서 등록 → 목록·영상 조회 → 자동 점검.
 
-C의 check_quality·dicom_io가 아직 stub이어도 등록이 유지되는지, 완성되면 점검 결과가 저장되는지 확인한다.
+C의 실제 check_quality·dicom_io와 함께 동작하는지, 그리고 점검·태그 읽기가 실패하거나
+준비되지 않았을 때(가짜 함수로 흉내)도 등록이 유지되는지 확인한다.
 """
 
 import io
@@ -53,18 +54,33 @@ def test_dev_registration_appears_in_list_and_viewer(dev, samples, monkeypatch):
     monkeypatch.setattr(register, "check_quality", lambda gray, thresholds: PASS_RESULT)
     outcome = register._register_and_check(_meta(), _png(samples["normal"]))
 
-    newest = cases.search_cases()[0]
+    newest = cases.search_cases(actor_uid=DEV_USER["uid"])[0]
     assert newest["case_id"] == outcome["case_id"] and newest["case_label"] == "LIDC-IDRI-0001"
     assert newest["latest_quality_status"] == "pass"  # 자동 점검 결과가 목록에 반영
     assert np.array_equal(cases.load_image(outcome["image_id"]), samples["normal"])  # 뷰어가 받을 영상
     assert outcome["quality"] == PASS_RESULT and outcome["quality_error"] is None
 
 
-def test_registration_kept_when_quality_check_not_ready(dev, samples):
-    # C의 check_quality가 아직 stub(NotImplementedError)이어도 등록은 유지된다 (§4)
+def test_registration_runs_real_quality_check(dev, samples):
+    # C의 실제 check_quality와 연결: 결과가 계약 형식으로 저장되고 목록에 반영된다
+    outcome = register._register_and_check(_meta(), _png(samples["blur"]))
+    assert outcome["quality_error"] is None
+    assert outcome["quality"]["status"] == "needs_check"
+    assert "possibly_blurry" in outcome["quality"]["reasons"]
+    case = cases.load_case(outcome["case_id"], actor_uid=DEV_USER["uid"])
+    assert case["latest_quality_status"] == "needs_check"
+
+
+def test_registration_kept_when_quality_check_not_ready(dev, samples, monkeypatch):
+    # 점검 함수가 준비되지 않았어도(NotImplementedError) 등록은 유지된다 (§4)
+    def not_ready(gray, thresholds):
+        raise NotImplementedError
+
+    monkeypatch.setattr(register, "check_quality", not_ready)
     outcome = register._register_and_check(_meta(), _png(samples["normal"]))
     assert outcome["quality"] is None and "준비되지 않아" in outcome["quality_error"]
-    assert cases.load_case(outcome["case_id"])["latest_quality_status"] is None
+    case = cases.load_case(outcome["case_id"], actor_uid=DEV_USER["uid"])
+    assert case["latest_quality_status"] is None
 
 
 def test_dicom_tags_fill_form(monkeypatch):
@@ -86,8 +102,18 @@ def test_register_tab_shows_form_for_admin_in_dev_mode(monkeypatch):
 # --- 오류 ---------------------------------------------------------------------
 
 def test_dicom_reader_not_ready_shows_notice(monkeypatch):
-    filled, notice = register._read_dicom_tags("scan.dcm", b"...")  # dicom_io stub
+    def not_ready(data):
+        raise NotImplementedError
+
+    monkeypatch.setattr(register.dicom_io, "read_tags", not_ready)
+    filled, notice = register._read_dicom_tags("scan.dcm", b"...")
     assert filled == {} and "준비되지 않았습니다" in notice
+
+
+def test_broken_dicom_shows_manual_input_notice():
+    # 실제 dicom_io: 확장자만 .dcm인 깨진 파일 → 직접 입력 안내 (예외로 화면이 멈추지 않음)
+    filled, notice = register._read_dicom_tags("scan.dcm", b"not a dicom file")
+    assert filled == {} and "읽지 못했습니다" in notice and "직접 입력" in notice
 
 
 def test_only_session_dev_user_can_register_in_dev_mode(dev, samples):

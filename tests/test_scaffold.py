@@ -46,7 +46,9 @@ def test_config_exposes_default_thresholds():
     from src.quality.thresholds import DEFAULT_THRESHOLDS as original
 
     assert DEFAULT_THRESHOLDS is original
-    assert DEFAULT_THRESHOLDS["version"] == "demo-v1"
+    # version 값은 C가 보정할 때 계약 변경 없이 바꾼다 (TEAM_CONTRACT §4) → 형식만 확인한다.
+    assert isinstance(DEFAULT_THRESHOLDS["version"], str)
+    assert DEFAULT_THRESHOLDS["version"].strip()
 
 
 def test_sample_fixture_follows_image_spec(samples):
@@ -56,8 +58,14 @@ def test_sample_fixture_follows_image_spec(samples):
     assert min(normal.shape) >= 32
 
 
-def test_stub_raises_not_implemented(samples):
+def test_contract_function_is_callable_with_contract_params():
+    """구현 여부와 상관없이 계약 함수가 있고 인자 이름이 계약과 같은지만 확인한다.
+
+    (예전에는 NotImplementedError를 기대해서 B가 CLAHE를 구현하면 실패했다.)
+    """
+    import inspect
+
     from src.processing.clahe import apply_clahe
 
-    with pytest.raises(NotImplementedError):
-        apply_clahe(samples["normal"])
+    assert callable(apply_clahe)
+    assert list(inspect.signature(apply_clahe).parameters) == ["gray", "clip_limit", "tile_grid_size"]

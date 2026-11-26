@@ -147,6 +147,23 @@ def _check_can_register(metadata: dict) -> str:
     return uid
 
 
+def _check_actor_uid(actor_uid) -> None:
+    """요청자 uid가 비어 있으면 비로그인으로 보고 거절한다 (§6.1)."""
+    if not isinstance(actor_uid, str) or not actor_uid.strip():
+        raise PermissionDeniedError("로그인이 필요합니다.")
+
+
+def _can_view_case(role: str, actor_uid: str, case: dict) -> bool:
+    """§6.1 조회 범위: admin은 전체, registrar는 본인 등록, reviewer는 본인 배정 케이스."""
+    if role == "admin":
+        return True
+    if role == "registrar":
+        return case.get("registered_by") == actor_uid
+    if role == "reviewer":
+        return case.get("assigned_reviewer_uid") == actor_uid
+    return False
+
+
 def _clean_metadata(metadata: dict) -> dict:
     """§3.3 metadata를 검증하고 정리한 사본을 반환한다 (입력 dict는 수정하지 않음)."""
     label = str(metadata.get("case_label") or "").strip()
@@ -346,11 +363,18 @@ def save_case(metadata: dict, image_bytes: bytes) -> tuple[str, str]:
     return case_id, image_id
 
 
-def load_case(case_id: str) -> dict:
-    """케이스 메타데이터/상태/최근 점검 요약 포함 dict; 없으면 NotFoundError."""
+def load_case(case_id: str, *, actor_uid: str) -> dict:
+    """케이스 메타데이터/상태/최근 점검 요약 포함 dict; 없으면 NotFoundError.
+    actor_uid의 역할로 §6.1 조회 범위를 검사한다. 범위 밖 케이스면 PermissionDeniedError.
+
+    개발 모드(§7.1)에서는 가상 관리자만 있으므로 uid가 있는지만 확인한다.
+    """
+    _check_actor_uid(actor_uid)
     if is_dev_mode():
         return _dev_load_case(case_id)
 
+    # 역할을 먼저 확인한다: 비활성·미등록 계정에는 케이스가 있는지조차 알려 주지 않는다.
+    role = auth.get_user_role(actor_uid)
     if not isinstance(case_id, str) or not case_id:
         raise NotFoundError("케이스를 찾을 수 없습니다.")
     try:
@@ -364,6 +388,9 @@ def load_case(case_id: str) -> dict:
         raise
     except Exception as err:
         raise StorageError("케이스 정보를 불러오지 못했습니다.") from err
+
+    if not _can_view_case(role, actor_uid, case):
+        raise PermissionDeniedError("이 케이스를 볼 권한이 없습니다.")
 
     # 화면이 바로 영상을 열 수 있도록 원본 영상 id를 같이 돌려준다 (개발 모드 형식과 동일).
     case["image_id"] = original["image_id"] if original else None
@@ -400,14 +427,19 @@ def load_image(image_id: str) -> np.ndarray:
         raise StorageError("저장된 영상을 읽을 수 없습니다.") from err
 
 
-def search_cases(query: str = "", status: str | None = None) -> list[dict]:
-    """권한 범위 내 케이스 목록, 등록일 내림차순.
+def search_cases(query: str = "", status: str | None = None, *, actor_uid: str) -> list[dict]:
+    """actor_uid의 권한 범위 내 케이스 목록, 등록일 내림차순.
     registrar: 본인 등록 케이스만
     reviewer: 본인 배정 케이스만
     admin: 전체
+
+    개발 모드(§7.1)에서는 가상 관리자만 있으므로 uid가 있는지만 확인한다.
     """
+    _check_actor_uid(actor_uid)
     if is_dev_mode():
         return _dev_search_cases(query, status)
+    auth.get_user_role(actor_uid)  # 비로그인·비활성 계정은 여기서 PermissionDeniedError
+    # TODO(A): 실제 Firestore 조회 — _can_view_case()로 같은 범위 필터를 적용한다.
     raise NotImplementedError
 
 

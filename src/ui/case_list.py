@@ -4,6 +4,8 @@
 다른 탭은 이 두 키로 선택된 케이스·영상을 알 수 있다.
 """
 
+import html
+
 import streamlit as st
 
 from src.errors import AppError
@@ -15,7 +17,9 @@ def render() -> None:
     style.page_header("케이스 목록", "선택한 케이스는 뷰어·자동 점검·검토 탭에서 함께 사용됩니다.")
 
     try:
-        cases = search_cases()
+        # 로그인한 사용자의 uid로 조회 범위를 검사한다 (§6.1). app.py가 로그인 후에만 탭을 그린다.
+        actor_uid = st.session_state.get("auth_user", {}).get("uid", "")
+        cases = search_cases(actor_uid=actor_uid)
     except NotImplementedError:
         style.todo_placeholder("A", "실제 케이스 조회(search_cases)는 Firebase 연결 후 구현합니다.")
         return
@@ -45,5 +49,8 @@ def render() -> None:
     # st.dataframe은 현재 requirements 조합(pyarrow 미고정 + numpy 1.26.4)에서 오류가 나므로
     # pyarrow 버전 고정이 합의될 때까지 markdown 표로 그린다.
     rows = ["| 케이스 | 검사 종류 | 업무 상태 |", "|---|---|---|"]
-    rows += [f'| {c["case_label"]} | {c["exam_type"]} | {c["status"]} |' for c in cases]
-    st.markdown("\n".join(rows))
+    rows += [
+        f'| {html.escape(c["case_label"])} | {html.escape(c["exam_type"])} | {style.status_badge(c["status"])} |'
+        for c in cases
+    ]
+    st.markdown("\n".join(rows), unsafe_allow_html=True)

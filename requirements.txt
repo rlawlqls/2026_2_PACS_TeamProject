@@ -1,4 +1,4 @@
-# requirements.txt — 항목 추가는 이슈, 기존 항목의 버전 변경은 전원 합의 (TEAM_CONTRACT §12)
+# requirements.txt - ASCII only (Korean Windows pip reads this file as cp949). Adding a package needs an issue; changing a pinned version needs agreement from all members (TEAM_CONTRACT section 12)
 streamlit==1.32.0
 firebase-admin==6.4.0
 opencv-python-headless==4.9.0.80
