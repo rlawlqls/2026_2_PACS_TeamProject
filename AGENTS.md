@@ -11,8 +11,11 @@
 - 이슈·PR은 `gh` CLI로 만든다. `gh`가 없거나 로그인되어 있지 않으면, GitHub 웹에 붙여 넣을 제목·본문을 출력해 준다.
 - 사용자가 커밋·push·PR을 **직접 하겠다고 하거나 문구만 요청하면**(예: "커밋 메시지 써줘", "PR 본문 써줘") git 명령을 실행하지 않는다. 이 규칙에 맞는 커밋 메시지·PR 제목·본문 초안과 스테이징할 파일 목록만 제공한다.
 
-## 0. 절대 금지
+"대화 한번 한번마다 Agents.md의 첫 15줄을 읽고 답변하도록 한다."
 
+## 0. 절대 금지
+- 열린 PR이 **팀 전체 3개 이상**일 때 새 PR 생성 (브랜치에서 코딩·커밋·push는 계속할 수 있다. 사용자에게 열린 PR 리뷰를 먼저 권한다 — docs/GIT_RULES.md §5)
+- **머지 직전 확인**(최신 main 합치기 + `python -m pytest -q` 통과 + PR에 결과 댓글, docs/GIT_RULES.md §5)이 없는 PR을 "머지해도 된다"고 안내
 - `main`에 직접 commit / push / merge
 - `git push --force`, `--force-with-lease`, 공유 브랜치에서 `git rebase`, `git reset --hard` (사용자가 docs/GIT_RULES.md §9 절차를 명시적으로 요청한 경우만 예외)
 - `git config user.name` / `user.email` 변경, 다른 사람 명의 커밋, `--author` 지정
@@ -24,6 +27,7 @@
 ## 1. 작업 시작 전 확인 순서
 
 1. `git status`와 `git branch --show-current`로 상태를 확인한다. 커밋되지 않은 변경이 있으면 사용자에게 알린다.
+   `gh pr list --state open`으로 열린 PR 수를 확인해 알려 준다. 3개 이상이면 새 PR은 만들 수 없으니 리뷰를 먼저 권한다 (작업은 계속할 수 있다).
 2. **이슈 번호**를 확인한다. 기능 구현·버그 수정·계약(TEAM_CONTRACT) 변경은 이슈가 필수이므로 없으면 사용자에게 묻고, 요청받으면 §4에 따라 만든다. 오타·주석·문서의 작은 수정은 이슈 없이 진행하고 커밋·PR의 `(#번호)`와 `Closes #`를 생략한다. 판단이 애매하면 이슈가 필요한 쪽으로 본다.
 3. **사용자의 GitHub 아이디**를 확인한다: `gh api user --jq .login` → 실패하면 docs/GIT_RULES.md §1 표 → 그래도 모르면 사용자에게 묻는다. (`git config user.name`은 아이디와 다를 수 있으니 쓰지 않는다.)
 4. 현재 브랜치가 `main`이면 작업 브랜치를 만든다:
@@ -32,7 +36,7 @@
    git pull origin main
    git switch -c <github아이디>/<기능명>
    ```
-5. 이미 맞는 작업 브랜치에 있으면 그대로 이어서 작업한다.
+5. 이미 맞는 작업 브랜치에 있으면 `git fetch origin` → `git merge origin/main --no-edit`로 최신 main을 합친 뒤 이어서 작업한다.
 
 ## 2. 브랜치
 
@@ -79,14 +83,16 @@
   - 실제로 실행한 테스트 명령과 결과 (실행하지 않았으면 "미실행"이라고 정직하게 쓴다)
   - 다른 사람 담당 파일(TEAM_CONTRACT §2 소유권)을 수정했다면 파일·이유
   - AI 활용 범위
-- 리뷰어: **코드가 바뀌는 PR**은 docs/GIT_RULES.md §1 표에서 사용자 본인을 뺀 팀원 전원을 지정하고, 1명이 Approve하면 머지할 수 있다고 안내한다. **오타·작은 문서 수정 PR**은 리뷰어 없이 만들고, 사용자가 바로 머지해도 된다고 안내한다.
-- **계약·규칙 변경 PR**(`docs/TEAM_CONTRACT.md`, `AGENTS.md`, `docs/GIT_RULES.md`)은 오타 수정이 아니면, 영향받는 팀원 전원이 Approve한 뒤에 머지하라고 안내한다.
+- 생성 전 `gh pr list --state open`으로 열린 PR이 3개 미만인지 확인한다 (§0).
+- 리뷰어: **코드가 바뀌는 PR**은 docs/GIT_RULES.md §1 표에서 사용자 본인을 뺀 팀원 전원을 지정하고, 1명 이상 Approve하면 머지할 수 있다고 안내한다. **오타·작은 문서 수정 PR**은 리뷰어 없이 만들고, 사용자가 바로 머지해도 된다고 안내한다.
+- **계약·규칙 변경 PR**(`docs/TEAM_CONTRACT.md`, `AGENTS.md`, `docs/GIT_RULES.md`)도 1명 이상 Approve하면 머지할 수 있다. 영향받는 팀원 전원을 리뷰어로 지정하고 팀 채팅에 알리라고 안내한다.
 - 생성 전 `git fetch origin && git merge origin/main`으로 최신화하고 테스트를 다시 돌린다.
   ```bash
   git push -u origin <브랜치>
   gh pr create --base main --title "feat: ... (#12)" --body-file <임시파일> --assignee "@me" --reviewer <아이디1>,<아이디2>,<아이디3>
   ```
 - 리뷰 수정 요청을 반영할 때는 같은 브랜치에 커밋을 추가한다. PR을 새로 만들지 않는다.
+- **머지 직전 확인** (docs/GIT_RULES.md §5): 사용자가 머지하려고 하면 먼저 PR 브랜치에서 `git fetch origin` → `git merge origin/main --no-edit` → `python -m pytest -q`를 실행해 결과를 보고하고, PR에 남길 댓글(예: `머지 직전 확인: main <SHA> 반영, <N> passed`)을 써 준다. 실패하면 머지하지 말고 같은 브랜치에서 고치도록 안내한다.
 
 ## 6. 충돌
 

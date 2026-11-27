@@ -6,6 +6,7 @@ from src.errors import (
     NotFoundError,
     PermissionDeniedError,
     StateConflictError,
+    StorageError,
     ValidationError,
 )
 from src.services import workflow
@@ -180,6 +181,11 @@ def workflow_db(fake_db, monkeypatch):
         "uid_other_reviewer": {"role": "reviewer", "active": True},
         "uid_registrar": {"role": "registrar", "active": True},
         "uid_inactive": {"role": "reviewer", "active": False},
+        # active가 bool True가 아닌 값: auth.get_user_role과 같은 기준으로 모두 비활성 처리
+        "uid_active_str_false": {"role": "admin", "active": "false"},
+        "uid_active_one": {"role": "reviewer", "active": 1},
+        "uid_active_missing": {"role": "reviewer"},
+        "uid_no_role": {"active": True},
     }
     fake_db.data["cases"] = {
         "case_demo": {
@@ -423,3 +429,96 @@ def test_add_review_note_rejects_run_from_other_case(review_note_db):
             "검토 메모",
             run_id="run_other",
         )
+# --- 역할 확인은 auth.get_user_role 기준 (§6.1) -------------------------------
+
+def test_workflow_uses_auth_get_user_role(workflow_db, monkeypatch):
+    calls = []
+
+    def fake_role(uid):
+        calls.append(uid)
+        return {"uid_admin": "admin", "uid_reviewer": "reviewer"}[uid]
+
+    monkeypatch.setattr(workflow.auth, "get_user_role", fake_role)
+    assign_case("case_demo", "uid_reviewer", "uid_admin")
+    transition_case("case_demo", "start_review", "uid_reviewer")
+    assert calls == ["uid_admin", "uid_reviewer", "uid_reviewer"]  # 실행자, 배정 대상, 실행자
+
+
+@pytest.mark.parametrize("actor_uid", ["uid_active_str_false", "uid_missing", "", None])
+def test_assign_case_rejects_actor_not_active_true(workflow_db, actor_uid):
+    with pytest.raises(PermissionDeniedError):
+        assign_case("case_demo", "uid_reviewer", actor_uid)
+
+
+@pytest.mark.parametrize("reviewer_uid", ["uid_active_one", "uid_active_missing", "uid_no_role"])
+def test_assign_case_rejects_reviewer_not_active_true(workflow_db, reviewer_uid):
+    with pytest.raises(PermissionDeniedError):
+        assign_case("case_demo", reviewer_uid, "uid_admin")
+    assert workflow_db.data["cases"]["case_demo"]["status"] == "registered"
+
+
+@pytest.mark.parametrize("reviewer_uid", ["", None])
+def test_assign_case_rejects_empty_reviewer_uid(workflow_db, reviewer_uid):
+    with pytest.raises(NotFoundError):
+        assign_case("case_demo", reviewer_uid, "uid_admin")
+
+
+def test_transition_case_rejects_actor_not_active_true(workflow_db):
+    workflow_db.data["cases"]["case_demo"].update(status="assigned", assigned_reviewer_uid="uid_active_one")
+    with pytest.raises(PermissionDeniedError):
+        transition_case("case_demo", "start_review", "uid_active_one")
+    assert workflow_db.data["cases"]["case_demo"]["status"] == "assigned"
+
+
+# --- 개발 모드 (§7.1) ----------------------------------------------------------
+
+@pytest.mark.parametrize("call", [
+    lambda: assign_case("case_dev_normal", "uid_reviewer", "dev-admin"),
+    lambda: transition_case("case_dev_normal", "start_review", "dev-admin"),
+], ids=["assign_case", "transition_case"])
+def test_dev_mode_rejects_with_clear_message(monkeypatch, call):
+    monkeypatch.setenv("APP_ENV", "development")
+
+    def no_db():
+        raise AssertionError("개발 모드에서는 Firestore에 연결하지 않아야 한다")
+
+    monkeypatch.setattr("src.services.firebase_client.get_db", no_db)
+    with pytest.raises(StorageError) as info:
+        call()
+    assert str(info.value) == workflow.DEV_MODE_MESSAGE
+    assert "APP_ENV=development" not in str(info.value)  # 이미 개발 모드인데 개발 모드로 안내하지 않는다
+
+
+def test_production_mode_still_saves_transition(workflow_db):
+    # fake_db fixture는 APP_ENV=production이다: 개발 모드 차단이 실제 동작을 막지 않는지 확인
+    assert assign_case("case_demo", "uid_reviewer", "uid_admin")["status"] == "assigned"
+
+
+# --- Firestore 조회 방식 -------------------------------------------------------
+
+def test_has_note_or_report_uses_filter_keyword():
+    """위치 인자 where("case_id", "==", …)는 실제 SDK에서 UserWarning이 난다 → filter=FieldFilter만 허용."""
+    seen = []
+
+    class KeywordOnlyQuery:
+        def where(self, *args, filter=None):
+            assert not args, "where는 filter= 키워드로만 불러야 한다"
+            seen.append((filter.field_path, filter.op_string, filter.value))
+            return self
+
+        def stream(self):
+            return iter([])
+
+    class Db:
+        def collection(self, name):
+            return KeywordOnlyQuery()
+
+    assert workflow._has_note_or_report(Db(), "case_demo") is False
+    assert seen == [("case_id", "==", "case_demo")] * 2  # review_notes, reports
+
+
+def test_has_note_or_report_finds_matching_case_only(workflow_db):
+    workflow_db.data["review_notes"] = {"n1": {"case_id": "case_other", "content": "다른 케이스"}}
+    assert workflow._has_note_or_report(workflow_db, "case_demo") is False
+    workflow_db.data["reports"] = {"r1": {"case_id": "case_demo"}}
+    assert workflow._has_note_or_report(workflow_db, "case_demo") is True
