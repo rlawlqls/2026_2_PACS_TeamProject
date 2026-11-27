@@ -10,6 +10,7 @@ from src.errors import (
     ValidationError,
 )
 from src.services import workflow
+from src.services.reports import add_review_note
 from src.services.workflow import assign_case, check_transition, transition_case
 
 
@@ -314,6 +315,123 @@ def test_transition_case_rejects_duplicate_action(workflow_db):
         transition_case("case_demo", "start_review", "uid_reviewer")
 
 
+@pytest.fixture
+def review_note_db(workflow_db):
+    workflow_db.data["cases"]["case_demo"].update({
+        "status": "assigned",
+        "assigned_reviewer_uid": "uid_reviewer",
+    })
+    workflow_db.data["cases"]["case_other"] = {
+        "status": "assigned",
+        "assigned_reviewer_uid": "uid_other_reviewer",
+        "registered_by": "uid_registrar",
+    }
+    workflow_db.data["images"] = {
+        "img_demo": {"case_id": "case_demo", "kind": "original"},
+        "img_other": {"case_id": "case_other", "kind": "original"},
+    }
+    workflow_db.data["processing_runs"] = {
+        "run_demo": {
+            "case_id": "case_demo",
+            "source_image_id": "img_demo",
+        },
+        "run_other": {
+            "case_id": "case_other",
+            "source_image_id": "img_other",
+        },
+    }
+    return workflow_db
+
+
+def test_add_review_note_saves_trimmed_content(review_note_db):
+    note_id = add_review_note(
+        "case_demo",
+        "img_demo",
+        "uid_reviewer",
+        "  밝기와 대비 확인  ",
+    )
+
+    assert note_id.startswith("note_")
+    stored = review_note_db.data["review_notes"][note_id]
+    assert stored["case_id"] == "case_demo"
+    assert stored["image_id"] == "img_demo"
+    assert stored["run_id"] is None
+    assert stored["content"] == "밝기와 대비 확인"
+    assert stored["author_uid"] == "uid_reviewer"
+    assert "created_at" in stored
+
+
+def test_add_review_note_links_processing_run(review_note_db):
+    note_id = add_review_note(
+        "case_demo",
+        "img_demo",
+        "uid_admin",
+        "Median 결과 확인",
+        run_id="run_demo",
+    )
+
+    assert review_note_db.data["review_notes"][note_id]["run_id"] == "run_demo"
+
+
+@pytest.mark.parametrize("content", ["", "   ", None])
+def test_add_review_note_rejects_empty_content(review_note_db, content):
+    with pytest.raises(ValidationError):
+        add_review_note("case_demo", "img_demo", "uid_reviewer", content)
+
+
+@pytest.mark.parametrize(
+    "actor_uid",
+    ["uid_registrar", "uid_inactive", "uid_active_str_false", "uid_missing", ""],
+)
+def test_add_review_note_rejects_unauthorized_actor(review_note_db, actor_uid):
+    with pytest.raises(PermissionDeniedError):
+        add_review_note("case_demo", "img_demo", actor_uid, "검토 메모")
+
+
+def test_add_review_note_rejects_unassigned_reviewer(review_note_db):
+    with pytest.raises(PermissionDeniedError):
+        add_review_note(
+            "case_demo",
+            "img_demo",
+            "uid_other_reviewer",
+            "검토 메모",
+        )
+
+
+@pytest.mark.parametrize(
+    ("case_id", "image_id"),
+    [("case_missing", "img_demo"), ("case_demo", "img_missing")],
+)
+def test_add_review_note_rejects_missing_target(review_note_db, case_id, image_id):
+    with pytest.raises(NotFoundError):
+        add_review_note(case_id, image_id, "uid_admin", "검토 메모")
+
+
+def test_add_review_note_rejects_image_from_other_case(review_note_db):
+    with pytest.raises(ValidationError):
+        add_review_note("case_demo", "img_other", "uid_admin", "검토 메모")
+
+
+def test_add_review_note_rejects_missing_processing_run(review_note_db):
+    with pytest.raises(NotFoundError):
+        add_review_note(
+            "case_demo",
+            "img_demo",
+            "uid_admin",
+            "검토 메모",
+            run_id="run_missing",
+        )
+
+
+def test_add_review_note_rejects_run_from_other_case(review_note_db):
+    with pytest.raises(ValidationError):
+        add_review_note(
+            "case_demo",
+            "img_demo",
+            "uid_admin",
+            "검토 메모",
+            run_id="run_other",
+        )
 # --- 역할 확인은 auth.get_user_role 기준 (§6.1) -------------------------------
 
 def test_workflow_uses_auth_get_user_role(workflow_db, monkeypatch):
