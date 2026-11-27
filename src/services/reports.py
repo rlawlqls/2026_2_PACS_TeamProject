@@ -12,7 +12,7 @@ from src.errors import (
     StorageError,
     ValidationError,
 )
-from src.services import firebase_client
+from src.services import auth, firebase_client
 
 
 def _new_id(prefix: str) -> str:
@@ -25,20 +25,11 @@ def _server_timestamp():
     return SERVER_TIMESTAMP
 
 
-def _get_active_actor(db, actor_uid: str) -> dict:
-    if not isinstance(actor_uid, str) or not actor_uid.strip():
-        raise PermissionDeniedError("로그인이 필요합니다.")
-
-    snapshot = db.collection("users").document(actor_uid).get()
-    if not snapshot.exists:
-        raise PermissionDeniedError("사용자 권한을 확인할 수 없습니다.")
-
-    actor = snapshot.to_dict() or {}
-    if not actor.get("active"):
-        raise PermissionDeniedError("비활성 계정은 메모를 작성할 수 없습니다.")
-    if actor.get("role") not in {"reviewer", "admin"}:
+def _get_active_actor(actor_uid: str) -> str:
+    role = auth.get_user_role(actor_uid)
+    if role not in {"reviewer", "admin"}:
         raise PermissionDeniedError("검토자 또는 관리자만 메모를 작성할 수 있습니다.")
-    return actor
+    return role
 
 
 def add_review_note(case_id: str, image_id: str,
@@ -56,14 +47,14 @@ def add_review_note(case_id: str, image_id: str,
 
     try:
         db = firebase_client.get_db()
-        actor = _get_active_actor(db, actor_uid)
+        actor_role = _get_active_actor(actor_uid)
 
         case_snapshot = db.collection("cases").document(case_id).get()
         if not case_snapshot.exists:
             raise NotFoundError("케이스를 찾을 수 없습니다.")
         case = case_snapshot.to_dict() or {}
         if (
-            actor.get("role") == "reviewer"
+            actor_role == "reviewer"
             and case.get("assigned_reviewer_uid") != actor_uid
         ):
             raise PermissionDeniedError("배정된 케이스에만 메모를 작성할 수 있습니다.")
