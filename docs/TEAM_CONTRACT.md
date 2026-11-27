@@ -449,12 +449,12 @@ def add_review_note(case_id: str, image_id: str,
                     run_id: str | None = None) -> str:
     """메모 저장; 반환 note_id. 빈 메모 금지, 대상 케이스와 이미지 관계 확인."""
 
-def get_case_history(case_id: str, actor_uid: str) -> list[dict]:
+def get_case_history(case_id: str, *, actor_uid: str) -> list[dict]:
     """요청자의 활성 상태·역할·케이스 조회 범위를 검사한 뒤
     업무 이벤트/메모/처리 기록을 조회 가능한 형태로 반환."""
 ```
 
-**호출 예:** `transition_case(case_id, "start_review", uid)`, `transition_case(case_id, "request_recheck", uid, "낮은 대비 확인 요청")`, `get_case_history(case_id, uid)`.
+**호출 예:** `transition_case(case_id, "start_review", uid)`, `transition_case(case_id, "request_recheck", uid, "낮은 대비 확인 요청")`, `get_case_history(case_id, actor_uid=uid)`.
 
 **상태 규칙은 DB 없는 순수 함수로 분리한다 (Firebase 키 없이 단위 테스트):**
 
