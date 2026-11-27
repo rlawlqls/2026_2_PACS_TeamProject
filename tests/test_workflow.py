@@ -379,7 +379,10 @@ def test_add_review_note_rejects_empty_content(review_note_db, content):
         add_review_note("case_demo", "img_demo", "uid_reviewer", content)
 
 
-@pytest.mark.parametrize("actor_uid", ["uid_registrar", "uid_inactive", "uid_missing", ""])
+@pytest.mark.parametrize(
+    "actor_uid",
+    ["uid_registrar", "uid_inactive", "uid_active_str_false", "uid_missing", ""],
+)
 def test_add_review_note_rejects_unauthorized_actor(review_note_db, actor_uid):
     with pytest.raises(PermissionDeniedError):
         add_review_note("case_demo", "img_demo", actor_uid, "검토 메모")
