@@ -449,11 +449,12 @@ def add_review_note(case_id: str, image_id: str,
                     run_id: str | None = None) -> str:
     """메모 저장; 반환 note_id. 빈 메모 금지, 대상 케이스와 이미지 관계 확인."""
 
-def get_case_history(case_id: str) -> list[dict]:
-    """업무 이벤트/메모/처리 기록을 조회 가능한 형태로 반환."""
+def get_case_history(case_id: str, actor_uid: str) -> list[dict]:
+    """요청자의 활성 상태·역할·케이스 조회 범위를 검사한 뒤
+    업무 이벤트/메모/처리 기록을 조회 가능한 형태로 반환."""
 ```
 
-**호출 예:** `transition_case(case_id, "start_review", uid)`, `transition_case(case_id, "request_recheck", uid, "낮은 대비 확인 요청")`.
+**호출 예:** `transition_case(case_id, "start_review", uid)`, `transition_case(case_id, "request_recheck", uid, "낮은 대비 확인 요청")`, `get_case_history(case_id, uid)`.
 
 **상태 규칙은 DB 없는 순수 함수로 분리한다 (Firebase 키 없이 단위 테스트):**
 
@@ -545,7 +546,7 @@ Firestore는 **업무 데이터**, Storage는 **실제 영상 파일**.
 | 메모·리포트 | X | O | O |
 | 계정 역할 변경 | X | X | O |
 
-**권한 범위:** `registrar`는 자신이 등록한 케이스, `reviewer`는 자신에게 배정된 케이스만 조회. `admin`은 전부. 검색·파일 다운로드·메모 조회에서도 동일한 필터를 적용한다.
+**권한 범위:** `registrar`는 자신이 등록한 케이스, `reviewer`는 자신에게 배정된 케이스만 조회. `admin`은 전부. 검색·파일 다운로드·메모·이력 조회에서도 동일한 필터를 적용한다.
 
 **비로그인·비활성 계정:** 세션에 검증된 uid가 없거나 `users/{uid}.active`가 false이면 모든 서비스 함수가 `PermissionDeniedError`를 낸다. 화면에서 버튼을 숨기는 것만으로는 충분하지 않다.
 
